@@ -93,7 +93,7 @@ int main( int argc, char** argv ) {
   float lstm_gradient_clip = 2.0f;
 
   // Parse optional parameters
-  int positional_index = 4;
+  int positional_index = 0;
   for (int i = 4; i < argc; i++) {
     char* arg = argv[i];
     char* equals = strchr(arg, '=');
@@ -106,20 +106,28 @@ int main( int argc, char** argv ) {
 
       if (strcmp(key, "ppmd_order") == 0) {
         ppmd_order = atoi(value);
+        positional_index = 1;
       } else if (strcmp(key, "ppmd_memory") == 0) {
         ppmd_memory = atoi(value);
+        positional_index = 2;
       } else if (strcmp(key, "lstm_input_size") == 0) {
         lstm_input_size = atoi(value);
+        positional_index = 3;
       } else if (strcmp(key, "lstm_num_cells") == 0) {
         lstm_num_cells = atoi(value);
+        positional_index = 4;
       } else if (strcmp(key, "lstm_num_layers") == 0) {
         lstm_num_layers = atoi(value);
+        positional_index = 5;
       } else if (strcmp(key, "lstm_horizon") == 0) {
         lstm_horizon = atoi(value);
+        positional_index = 6;
       } else if (strcmp(key, "lstm_learning_rate") == 0) {
         lstm_learning_rate = (float)atof(value);
+        positional_index = 7;
       } else if (strcmp(key, "lstm_gradient_clip") == 0) {
         lstm_gradient_clip = (float)atof(value);
+        positional_index = 8;
       } else {
         fprintf(stderr, "Unknown parameter: %s\n", key);
         print_usage(argv[0]);
@@ -129,8 +137,7 @@ int main( int argc, char** argv ) {
       *equals = '=';  // Restore original string
     } else {
       // Positional parameter
-      int pos = positional_index - 4;
-      switch (pos) {
+      switch (positional_index) {
         case 0: ppmd_order = atoi(arg); break;
         case 1: ppmd_memory = atoi(arg); break;
         case 2: lstm_input_size = atoi(arg); break;
@@ -143,6 +150,10 @@ int main( int argc, char** argv ) {
       positional_index++;
     }
   }
+
+  // Print parsed parameters
+  printf("Parameters: ppmd_order=%d ppmd_memory=%d lstm_input_size=%d lstm_num_cells=%d lstm_num_layers=%d lstm_horizon=%d lstm_learning_rate=%.3f lstm_gradient_clip=%.3f\n",
+         ppmd_order, ppmd_memory, lstm_input_size, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip);
 
   uint i,j,c,pc=10,code,low,total=0,freq[CNUM],f_len,f_pos;
   for( i=0; i<CNUM; i++ ) total+=(freq[i]=1);
