@@ -10,6 +10,10 @@ import os
 import sys
 import json
 import threading
+import hashlib
+import signal
+import atexit
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
@@ -153,6 +157,13 @@ class ParamOptimizer:
         self.worst_ctime: float = 60.0  # Initial estimate
         self.worst_dtime: float = 60.0
 
+        # Track running subprocesses for cleanup
+        self.running_processes = []
+        self.processes_lock = threading.Lock()
+
+        # Flag for shutdown
+        self.shutting_down = False
+
         # Metric parameters
         self.uspeed = 240 * 1000 / 8  # 30000 bytes/sec
         self.dspeed = 4 * 1000 * 1000 / 8  # 500000 bytes/sec
@@ -162,19 +173,82 @@ class ParamOptimizer:
         self.temp_dir = Path("./lstm_optimize_temp")
         self.temp_dir.mkdir(exist_ok=True)
 
+        # Compute input file hash once for verification
+        self.input_file_hash = self.compute_file_hash(self.input_file)
+
         # Initialize log file
         self.log_lock = threading.Lock()
         with open(self.log_file, 'w') as f:
             f.write("LSTM Compressor Parameter Optimization Log\n")
             f.write("=" * 80 + "\n")
             f.write(f"Input file: {self.input_file}\n")
+            f.write(f"Input file hash: {self.input_file_hash}\n")
             f.write(f"Threads: {self.num_threads}\n")
             f.write(f"Skip decompression: {self.skip_decompression}\n")
-            f.write(f"Metric: ctime + csize/{self.uspeed} + {self.nusers}*(csize/{self.dspeed} + dtime)\n")
+            f.write(f"Metric: ctime + 5*csize/{self.uspeed} + {self.nusers}*(5*csize/{self.dspeed} + dtime)\n")
             f.write("=" * 80 + "\n\n")
+
+        # Register cleanup handler
+        atexit.register(self.cleanup)
+
+        # Setup signal handlers for graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, self._signal_handler)
 
         # Run baseline test with default parameters
         self.run_baseline()
+
+    def _signal_handler(self, signum, frame):
+        """Handle interrupt signals (Ctrl-C)"""
+        if not self.shutting_down:
+            print("\n\nReceived interrupt signal. Cleaning up...")
+            self.shutting_down = True
+            self.cleanup()
+            sys.exit(0)
+
+    def cleanup(self):
+        """Clean up running processes and temporary files"""
+        # Prevent multiple simultaneous cleanups
+        if hasattr(self, '_cleanup_done') and self._cleanup_done:
+            return
+        self._cleanup_done = True
+        self.shutting_down = True
+
+        # Kill all running subprocesses
+        with self.processes_lock:
+            if self.running_processes:
+                print(f"Terminating {len(self.running_processes)} running processes...")
+                for proc in self.running_processes:
+                    try:
+                        if proc.poll() is None:  # Process still running
+                            proc.terminate()
+                            # Give it a moment to terminate gracefully
+                            try:
+                                proc.wait(timeout=1)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()  # Force kill if it doesn't terminate
+                    except Exception:
+                        pass  # Process may have already terminated
+                self.running_processes.clear()
+
+        # Clean up temporary directory
+        if hasattr(self, 'temp_dir') and self.temp_dir.exists():
+            try:
+                print(f"Cleaning up temporary directory: {self.temp_dir}")
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp directory: {e}")
+
+    @staticmethod
+    def compute_file_hash(file_path: str) -> str:
+        """Compute SHA256 hash of a file"""
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            # Read in chunks to handle large files
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
 
     def run_baseline(self):
         """Run baseline test with default parameters to establish known good result"""
@@ -199,10 +273,13 @@ class ParamOptimizer:
 
     def params_to_key(self, params: Dict) -> str:
         """Convert parameter dict to a hashable key"""
-        # Round floats for consistent hashing
+        # Round floats for consistent hashing, ensure integers are integers
         rounded = {}
         for k, v in params.items():
-            if isinstance(v, float):
+            if k in PARAM_TYPES and PARAM_TYPES[k] == int:
+                # Force integer parameters to be integers (avoid 12.0 vs 12)
+                rounded[k] = int(round(v)) if isinstance(v, (int, float)) else v
+            elif isinstance(v, float):
                 rounded[k] = round(v, 6)
             else:
                 rounded[k] = v
@@ -210,8 +287,9 @@ class ParamOptimizer:
 
     def calculate_metric(self, csize: int, ctime: float, dtime: float) -> float:
         """Calculate optimization metric (lower is better)"""
-        metric = (ctime + csize / self.uspeed +
-                 self.nusers * (csize / self.dspeed + dtime))
+        # Increase csize cost by 5x to prioritize smaller compressed sizes
+        metric = (ctime + 5 * csize / self.uspeed +
+                 self.nusers * (5 * csize / self.dspeed + dtime))
         return metric
 
     def run_coder(self, mode: str, input_file: str, output_file: str,
@@ -223,7 +301,7 @@ class ParamOptimizer:
         # Build command
         cmd = [self.coder_path, mode, input_file, output_file]
 
-        # Add parameters (lstm_input_size is always 128, not optimized)
+        # Add parameters by name (lstm_input_size is always 128, not optimized)
         params_with_fixed = params.copy()
         params_with_fixed['lstm_input_size'] = 128
 
@@ -231,42 +309,91 @@ class ParamOptimizer:
                     'lstm_num_layers', 'lstm_horizon', 'lstm_learning_rate',
                     'lstm_gradient_clip', 'update_limit']:
             if key in params_with_fixed:
-                cmd.append(str(params_with_fixed[key]))
+                value = params_with_fixed[key]
+                # Ensure integer parameters are formatted as integers
+                if key in PARAM_TYPES and PARAM_TYPES[key] == int:
+                    value = int(round(value))
+                cmd.append(f"{key}={value}")
 
         # Create command line string for logging
         cmd_str = ' '.join(cmd)
 
+        # Check if shutting down
+        if self.shutting_down:
+            return False, 0.0, "Shutdown in progress", cmd_str
+
         # Run with timeout, redirect output, and suppress crash dialogs
+        proc = None
         try:
             start_time = time.time()
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                timeout=timeout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=SUBPROCESS_FLAGS  # Suppress crash dialogs on Windows
             )
+
+            # Track this process
+            with self.processes_lock:
+                self.running_processes.append(proc)
+
+            # Wait for completion with timeout
+            try:
+                returncode = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                return False, timeout, "Timeout", cmd_str
+            finally:
+                # Remove from tracking
+                with self.processes_lock:
+                    if proc in self.running_processes:
+                        self.running_processes.remove(proc)
+
             elapsed = time.time() - start_time
 
             # Check return code - treat crashes as failures
-            if result.returncode != 0:
+            if returncode != 0:
                 # Negative return codes typically indicate crashes/signals
-                if result.returncode < 0:
-                    return False, 0.0, f"Crashed (signal {-result.returncode})", cmd_str
+                if returncode < 0:
+                    return False, 0.0, f"Crashed (signal {-returncode})", cmd_str
                 else:
                     # Print exit code in hex and decimal
-                    return False, 0.0, f"Exit code 0x{result.returncode:X} ({result.returncode})", cmd_str
+                    return False, 0.0, f"Exit code 0x{returncode:X} ({returncode})", cmd_str
 
             return True, elapsed, None, cmd_str
-        except subprocess.TimeoutExpired:
-            return False, timeout, "Timeout", cmd_str
-        except subprocess.CalledProcessError as e:
-            return False, 0.0, f"Exit code 0x{e.returncode:X} ({e.returncode})", cmd_str
         except Exception as e:
+            # Make sure to clean up process on any exception
+            if proc is not None:
+                with self.processes_lock:
+                    if proc in self.running_processes:
+                        self.running_processes.remove(proc)
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
+                except Exception:
+                    pass
             return False, 0.0, str(e), cmd_str
 
     def test_params(self, params: Dict) -> TestResult:
         """Test a parameter set and return results"""
+        # Check if shutting down
+        if self.shutting_down:
+            result = TestResult(params=params.copy())
+            result.error = "Shutdown in progress"
+            result.valid = False
+            return result
+
+        # Normalize parameters (ensure integers are integers, not floats)
+        normalized_params = {}
+        for k, v in params.items():
+            if k in PARAM_TYPES and PARAM_TYPES[k] == int:
+                normalized_params[k] = int(round(v))
+            else:
+                normalized_params[k] = v
+        params = normalized_params
+
         # Check cache first
         key = self.params_to_key(params)
         with self.cache_lock:
@@ -321,11 +448,18 @@ class ParamOptimizer:
                         result.valid = False
                     else:
                         result.dtime = dtime
-                        result.valid = True
 
-                        # Update worst time
-                        if dtime > self.worst_dtime:
-                            self.worst_dtime = dtime
+                        # Verify decompressed file matches original by comparing hashes
+                        decompressed_hash = self.compute_file_hash(str(decompressed_file))
+                        if decompressed_hash != self.input_file_hash:
+                            result.error = "Decompressed file does not match original (data corruption)"
+                            result.valid = False
+                        else:
+                            result.valid = True
+
+                            # Update worst time only if valid
+                            if dtime > self.worst_dtime:
+                                self.worst_dtime = dtime
 
                 # Calculate metric if valid
                 if result.valid:
@@ -348,6 +482,8 @@ class ParamOptimizer:
             with self.best_lock:
                 if self.best_result is None or result.metric < self.best_result.metric:
                     self.best_result = result
+                    # Write best result to result.txt
+                    self.write_result_file()
 
         # Log to file
         self.log_result(result)
@@ -407,6 +543,31 @@ class ParamOptimizer:
 
         sys.stdout.flush()
 
+    def write_result_file(self):
+        """Write best result to result.txt file"""
+        if not self.best_result or not self.best_result.valid:
+            return
+
+        result_file = "result.txt"
+        try:
+            with open(result_file, 'w') as f:
+                # Write parameter string
+                param_str = " ".join(f"{v}" for k, v in sorted(self.best_result.params.items()))
+                f.write(f"Best parameters: {param_str}\n")
+
+                # Write stats
+                f.write(f"Compressed size: {self.best_result.csize} bytes\n")
+                f.write(f"Compression time: {self.best_result.ctime:.3f}s\n")
+                f.write(f"Decompression time: {self.best_result.dtime:.3f}s\n")
+                f.write(f"Metric: {self.best_result.metric:.3f}\n")
+
+                # Write individual parameter values on separate lines for clarity
+                f.write("\nParameter details:\n")
+                for k, v in sorted(self.best_result.params.items()):
+                    f.write(f"  {k} = {v}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write result.txt: {e}")
+
     def params_array_to_dict(self, arr: np.ndarray) -> Dict:
         """Convert parameter array to dict with proper types"""
         param_names = sorted(PARAM_BOUNDS.keys())
@@ -451,6 +612,9 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
+        # Create integrality constraint (True for integer parameters)
+        integrality = [PARAM_TYPES[name] == int for name in param_names]
+
         # Callback to print iteration progress
         iteration = [0]
         def callback(xk, convergence):
@@ -458,10 +622,11 @@ class ParamOptimizer:
             print(f"\n--- DE Iteration {iteration[0]}/{max_iter} ---")
             return False
 
-        # Run optimization
+        # Run optimization with integrality constraints
         result = differential_evolution(
             self.objective_function,
             bounds,
+            integrality=integrality,  # Enforce integer constraints
             workers=self.num_threads,
             maxiter=max_iter,
             disp=False,
@@ -515,9 +680,31 @@ class ParamOptimizer:
         def eval_individual(individual):
             return (self.objective_function(np.array(individual)),)
 
+        # Helper function to enforce integer constraints
+        def enforce_integer_constraints(individual):
+            """Round integer parameters to ensure validity"""
+            for i, name in enumerate(param_names):
+                if PARAM_TYPES[name] == int:
+                    individual[i] = round(individual[i])
+                    # Clip to bounds
+                    min_val, max_val = PARAM_BOUNDS[name]
+                    individual[i] = max(min_val, min(max_val, individual[i]))
+            return individual,
+
+        # Decorator for genetic operators to enforce integer constraints
+        def check_integers(func):
+            def wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                # Apply integer constraints to all modified individuals
+                if hasattr(args[0], '__iter__'):
+                    for ind in args[:2] if len(args) >= 2 else [args[0]]:
+                        enforce_integer_constraints(ind)
+                return result
+            return wrapper
+
         toolbox.register("evaluate", eval_individual)
-        toolbox.register("mate", tools.cxTwoPoint)
-        toolbox.register("mutate", tools.mutPolynomialBounded,
+        toolbox.register("mate", check_integers(tools.cxTwoPoint))
+        toolbox.register("mutate", check_integers(tools.mutPolynomialBounded),
                         low=[PARAM_BOUNDS[n][0] for n in param_names],
                         up=[PARAM_BOUNDS[n][1] for n in param_names],
                         eta=20.0, indpb=0.2)
@@ -619,29 +806,33 @@ def main():
         skip_decompression=args.skip_decompress
     )
 
-    # Run optimization
-    if args.method == 'de':
-        if not HAS_SCIPY:
-            print("Error: scipy required for DE. Install with: pip install scipy")
-            return 1
-        optimizer.optimize_differential_evolution(max_iter=args.max_iter)
-    elif args.method == 'ga':
-        if not HAS_DEAP:
-            print("Error: DEAP required for GA. Install with: pip install deap")
-            return 1
-        optimizer.optimize_genetic_algorithm(
-            population_size=args.population,
-            generations=args.generations
-        )
-    elif args.method == 'hybrid':
-        if not HAS_SCIPY and not HAS_DEAP:
-            print("Error: scipy and/or DEAP required. Install with: "
-                  "pip install scipy deap")
-            return 1
-        optimizer.optimize_hybrid(
-            ga_generations=args.generations // 2,
-            de_maxiter=args.max_iter // 2
-        )
+    try:
+        # Run optimization
+        if args.method == 'de':
+            if not HAS_SCIPY:
+                print("Error: scipy required for DE. Install with: pip install scipy")
+                return 1
+            optimizer.optimize_differential_evolution(max_iter=args.max_iter)
+        elif args.method == 'ga':
+            if not HAS_DEAP:
+                print("Error: DEAP required for GA. Install with: pip install deap")
+                return 1
+            optimizer.optimize_genetic_algorithm(
+                population_size=args.population,
+                generations=args.generations
+            )
+        elif args.method == 'hybrid':
+            if not HAS_SCIPY and not HAS_DEAP:
+                print("Error: scipy and/or DEAP required. Install with: "
+                      "pip install scipy deap")
+                return 1
+            optimizer.optimize_hybrid(
+                ga_generations=args.generations // 2,
+                de_maxiter=args.max_iter // 2
+            )
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user.")
+        # cleanup will be called automatically via atexit
 
     # Print final results
     print("\n\n=== OPTIMIZATION COMPLETE ===")
@@ -652,6 +843,10 @@ def main():
               f"metric={optimizer.best_result.metric:.2f}")
         print(f"Tested {len(optimizer.cache)} unique parameter sets")
         print(f"Results logged to: {args.log}")
+
+        # Write best result to result.txt
+        optimizer.write_result_file()
+        print(f"Best result written to: result.txt")
 
         # Log final summary
         with open(args.log, 'a') as f:
