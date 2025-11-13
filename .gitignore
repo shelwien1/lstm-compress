@@ -1,0 +1,8 @@
+# Build artifacts
+coder
+coder.exe
+*.o
+
+# Test files
+1
+2
