@@ -2,11 +2,6 @@
 // mod_ppmd is adapted from ppmd by Eugene Shelwien.
 // This file is adapted from mod_ppmd_v2: http://encode.su/threads/2515-mod_ppmd
 
-#include "ppmd.h"
-#include <cstring>
-#include <stdlib.h>
-#include <cstdio>
-
 namespace PPMD {
 
 template <class T> T Min( T x, T y ) { return (x<y) ? x : y; }
@@ -1337,46 +1332,4 @@ void ppmd_UpdateByte( uint c ) {
 
 unsigned long long counter_ = 0;
 
-PPMD::PPMD(int order, int memory, const unsigned int& bit_context,
-    const std::vector<bool>& vocab) : Byte_Model(vocab), byte_(bit_context) {
-  ppmd_model_.reset(new ppmd_Model());
-  ppmd_model_->Init(order,memory,1,0);
-}
-
-PPMD::~PPMD() {
-}
-
-void PPMD::ByteUpdate() {
-  ++counter_;
-//fprintf(stderr,"!byte_=%02X!\n", byte_);
-  ppmd_model_->ppmd_UpdateByte( byte_&0xFF );
-  ppmd_model_->ppmd_PrepareByte();
-#if 0
-  int i,j;
-  for( i=0; i<256; i++ ) probs_[i]=0;
-  for( i=0,j=0; i<256; i++ ) {
-    if( vocab_[i] ) probs_[j++] = ppmd_model_->sqp[i];
-  }
-#else
-  for (int i = 0; i < 256; ++i) {
-    probs_[i] = ppmd_model_->sqp[i];
-    if (probs_[i] < 1) probs_[i] = 1;
-  }
-#endif
-  Byte_Model::ByteUpdate();
-  probs_ /= probs_.sum();
-}
-
 } // namespace PPMD
-
-#if 0
-    int i, offset = 0;
-    for( i = 0; i < 256; i++ ) {
-      if( vocab_[i] ) {
-        probs_[i] = output[offset];
-        offset++;
-      } else {
-        probs_[i] = 0;
-      }
-    }
-#endif
