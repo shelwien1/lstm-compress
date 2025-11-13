@@ -14,7 +14,7 @@ import hashlib
 import signal
 import atexit
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
 import numpy as np
@@ -64,8 +64,12 @@ except ImportError:
     print("Warning: DEAP not available for GA. Install with: pip install deap")
 
 
+# Parameters that use logarithmic scale for better sampling
+LOG_SCALE_PARAMS = {'update_limit'}
+
 # Parameter bounds (min, max)
 # lstm_input_size is not optimized - it depends on input file (fixed at 128)
+# Note: update_limit uses log10 scale internally for more efficient search
 PARAM_BOUNDS = {
     'ppmd_order': (2, 256),
     'lstm_num_cells': (10, 200),
@@ -73,7 +77,7 @@ PARAM_BOUNDS = {
     'lstm_horizon': (1, 99),
     'lstm_learning_rate': (0.001, 0.5),
     'lstm_gradient_clip': (0.5, 10.0),
-    'update_limit': (500, 10000),
+    'update_limit': (np.log10(500), np.log10(10000)),  # log10 scale
 }
 
 # Default values
@@ -97,6 +101,12 @@ PARAM_TYPES = {
     'lstm_learning_rate': float,
     'lstm_gradient_clip': float,
     'update_limit': int,
+}
+
+# Floating-point precision for each float parameter (decimal places)
+FLOAT_PRECISION = {
+    'lstm_learning_rate': 4,
+    'lstm_gradient_clip': 2,
 }
 
 
@@ -152,6 +162,11 @@ class ParamOptimizer:
         # Track test count
         self.test_count = 0
         self.count_lock = threading.Lock()
+
+        # Early stopping tracking
+        self.no_improvement_count = 0
+        self.early_stop_threshold = 100  # Stop after 100 tests without improvement
+        self.improvement_epsilon = 1e-3  # Minimum improvement to count as progress
 
         # Track worst time for timeout calculation
         self.worst_ctime: float = 60.0  # Initial estimate
@@ -272,18 +287,22 @@ class ParamOptimizer:
         print()
 
     def params_to_key(self, params: Dict) -> str:
-        """Convert parameter dict to a hashable key"""
-        # Round floats for consistent hashing, ensure integers are integers
-        rounded = {}
+        """Convert parameter dict to a hashable key using MD5"""
+        # Round integers and floats to eliminate duplicate tests from float drift
+        normalized = {}
         for k, v in params.items():
             if k in PARAM_TYPES and PARAM_TYPES[k] == int:
                 # Force integer parameters to be integers (avoid 12.0 vs 12)
-                rounded[k] = int(round(v)) if isinstance(v, (int, float)) else v
+                normalized[k] = int(round(v)) if isinstance(v, (int, float)) else v
             elif isinstance(v, float):
-                rounded[k] = round(v, 6)
+                # Use per-parameter precision
+                precision = FLOAT_PRECISION.get(k, 4)
+                normalized[k] = round(float(v), precision)
             else:
-                rounded[k] = v
-        return json.dumps(rounded, sort_keys=True)
+                normalized[k] = v
+        # Use MD5 hash for faster comparison
+        json_str = json.dumps(normalized, sort_keys=True)
+        return hashlib.md5(json_str.encode()).hexdigest()
 
     def calculate_metric(self, csize: int, ctime: float, dtime: float) -> float:
         """Calculate optimization metric (lower is better)"""
@@ -477,13 +496,23 @@ class ParamOptimizer:
         with self.cache_lock:
             self.cache[key] = result
 
-        # Update best result
+        # Update best result and early stopping counter
         if result.valid:
             with self.best_lock:
-                if self.best_result is None or result.metric < self.best_result.metric:
+                if self.best_result is None:
                     self.best_result = result
+                    self.no_improvement_count = 0
                     # Write best result to result.txt
                     self.write_result_file()
+                elif result.metric < self.best_result.metric - self.improvement_epsilon:
+                    # Significant improvement
+                    self.best_result = result
+                    self.no_improvement_count = 0
+                    # Write best result to result.txt
+                    self.write_result_file()
+                else:
+                    # No significant improvement
+                    self.no_improvement_count += 1
 
         # Log to file
         self.log_result(result)
@@ -577,20 +606,43 @@ class ParamOptimizer:
             # Clip to bounds
             min_val, max_val = PARAM_BOUNDS[name]
             value = np.clip(value, min_val, max_val)
-            # Convert to proper type
+            # Convert from log scale if needed
+            if name in LOG_SCALE_PARAMS:
+                value = 10 ** value
+            # Convert to proper type with precision
             if PARAM_TYPES[name] == int:
                 params[name] = int(round(value))
             else:
-                params[name] = float(value)
+                # Apply per-parameter precision
+                precision = FLOAT_PRECISION.get(name, 4)
+                params[name] = round(float(value), precision)
         return params
 
     def params_dict_to_array(self, params: Dict) -> np.ndarray:
         """Convert parameter dict to array"""
         param_names = sorted(PARAM_BOUNDS.keys())
-        return np.array([params[name] for name in param_names])
+        arr = []
+        for name in param_names:
+            value = params[name]
+            # Convert to log scale if needed
+            if name in LOG_SCALE_PARAMS:
+                value = np.log10(value)
+            arr.append(value)
+        return np.array(arr)
+
+    def should_early_stop(self) -> bool:
+        """Check if early stopping criteria is met"""
+        return self.no_improvement_count >= self.early_stop_threshold
 
     def objective_function(self, arr: np.ndarray) -> float:
         """Objective function for optimization (lower is better)"""
+        # Enforce integer rounding before evaluation to avoid redundant tests
+        arr = np.array(arr)
+        param_names = sorted(PARAM_BOUNDS.keys())
+        for i, name in enumerate(param_names):
+            if PARAM_TYPES[name] == int:
+                arr[i] = np.round(arr[i])
+
         params = self.params_array_to_dict(arr)
         result = self.test_params(params)
 
@@ -600,7 +652,7 @@ class ParamOptimizer:
             # Return large penalty for invalid results
             return 1e9
 
-    def optimize_differential_evolution(self, max_iter: int = 50):
+    def optimize_differential_evolution(self, max_iter: int = 50, warm_start: bool = False):
         """Optimize using differential evolution (gradient-free)"""
         if not HAS_SCIPY:
             print("scipy not available. Install with: pip install scipy")
@@ -612,28 +664,39 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
-        # Create integrality constraint (True for integer parameters)
-        integrality = [PARAM_TYPES[name] == int for name in param_names]
+        # Prepare initial population for warm start
+        init_population = None
+        if warm_start and self.best_result and self.best_result.valid:
+            print("Using warm start from best GA result")
+            init_population = [self.params_dict_to_array(self.best_result.params)]
 
-        # Callback to print iteration progress
+        # Callback to print iteration progress and check early stopping
         iteration = [0]
         def callback(xk, convergence):
             iteration[0] += 1
             print(f"\n--- DE Iteration {iteration[0]}/{max_iter} ---")
+            if self.should_early_stop():
+                print(f"Early stopping: no improvement in {self.early_stop_threshold} tests")
+                return True  # Stop optimization
             return False
 
-        # Run optimization with integrality constraints
-        result = differential_evolution(
-            self.objective_function,
-            bounds,
-            integrality=integrality,  # Enforce integer constraints
-            workers=self.num_threads,
-            maxiter=max_iter,
-            disp=False,
-            updating='deferred',  # Parallel evaluation
-            seed=42,
-            callback=callback
-        )
+        # Run optimization without integrality constraints (handled in objective_function)
+        de_kwargs = {
+            'func': self.objective_function,
+            'bounds': bounds,
+            'workers': self.num_threads,
+            'maxiter': max_iter,
+            'disp': False,
+            'updating': 'deferred',  # Parallel evaluation
+            'seed': 42,
+            'callback': callback
+        }
+
+        # Add init parameter if warm starting
+        if init_population:
+            de_kwargs['init'] = init_population
+
+        result = differential_evolution(**de_kwargs)
 
         print(f"\n\nDifferential Evolution complete!")
         print(f"Best metric: {result.fun:.2f}")
@@ -707,10 +770,12 @@ class ParamOptimizer:
         toolbox.register("mutate", check_integers(tools.mutPolynomialBounded),
                         low=[PARAM_BOUNDS[n][0] for n in param_names],
                         up=[PARAM_BOUNDS[n][1] for n in param_names],
-                        eta=20.0, indpb=0.2)
+                        eta=10.0, indpb=0.4)  # More aggressive mutation for faster exploration
         toolbox.register("select", tools.selTournament, tournsize=3)
 
-        # Thread pool for parallel evaluation
+        # Use ThreadPoolExecutor for parallel evaluation
+        # Note: ProcessPoolExecutor could provide better parallelism but requires
+        # additional serialization handling for the evaluation function
         toolbox.register("map", ThreadPoolExecutor(max_workers=self.num_threads).map)
 
         # Create initial population
@@ -727,6 +792,14 @@ class ParamOptimizer:
         # Evolution loop
         for gen in range(1, generations + 1):
             print(f"\n--- GA Generation {gen}/{generations} ---")
+
+            # Check for early stopping
+            if self.should_early_stop():
+                print(f"Early stopping: no improvement in {self.early_stop_threshold} tests")
+                break
+
+            # Preserve elite individuals (top 2)
+            elite = tools.selBest(pop, k=2)
 
             # Select offspring
             offspring = toolbox.select(pop, len(pop))
@@ -750,13 +823,14 @@ class ParamOptimizer:
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness.values = fit
 
-            # Replace population
+            # Replace population with elitism (keep best 2)
+            offspring[-2:] = elite
             pop[:] = offspring
 
         print("\n\nGenetic Algorithm optimization complete!")
 
     def optimize_hybrid(self, ga_generations: int = 20, de_maxiter: int = 20):
-        """Hybrid optimization: GA first, then DE refinement"""
+        """Hybrid optimization: GA first, then DE refinement with warm start"""
         print("Starting hybrid optimization (GA + DE)...")
 
         if HAS_DEAP:
@@ -765,8 +839,8 @@ class ParamOptimizer:
                                            generations=ga_generations)
 
         if HAS_SCIPY and self.best_result:
-            print("\nPhase 2: Differential Evolution (refinement)")
-            self.optimize_differential_evolution(max_iter=de_maxiter)
+            print("\nPhase 2: Differential Evolution (refinement with warm start)")
+            self.optimize_differential_evolution(max_iter=de_maxiter, warm_start=True)
 
 
 def main():
