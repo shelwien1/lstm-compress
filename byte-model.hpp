@@ -1,34 +1,18 @@
 
 #pragma once
 
-#include <vector>
 #include <valarray>
 #include <numeric>
 
-class BaseModel {
- public:
-  BaseModel() : outputs_(0.5, 1) {}
-  BaseModel(int size) : outputs_(0.5, size) {}
-  ~BaseModel() {}
-  const std::valarray<float>& Predict() const {return outputs_;}
-  unsigned int NumOutputs() {return outputs_.size();}
-  void Perceive(int bit) {}
-  void ByteUpdate() {}
-
- protected:
-  mutable std::valarray<float> outputs_;
-};
-
-class Byte_Model : public BaseModel {
+class Byte_Model {
  public:
   virtual ~Byte_Model() {}
 
-  Byte_Model(const std::vector<bool>& vocab) : ex(0), top_(255), mid_(0),
+  Byte_Model(char* vocab) : outputs_(0.5, 1), ex(0), top_(255), mid_(0),
       bot_(0), vocab_(vocab), probs_(1.0 / 256, 256) {}
 
-  const std::valarray<float>& BytePredict() {
-    return probs_;
-  }
+  const std::valarray<float>& Predict() const {return outputs_;}
+  unsigned int NumOutputs() {return outputs_.size();}
 
   std::valarray<float>& Predict() {
     auto mid = bot_ + ((top_ - bot_) / 2);
@@ -56,6 +40,10 @@ class Byte_Model : public BaseModel {
     }
   }
 
+  const std::valarray<float>& BytePredict() {
+    return probs_;
+  }
+
   void ByteUpdate() {
     top_ = 255;
     bot_ = 0;
@@ -67,7 +55,8 @@ class Byte_Model : public BaseModel {
   int ex;
 
  protected:
+  mutable std::valarray<float> outputs_;
   int top_, mid_, bot_;
-  const std::vector<bool>& vocab_;
+  char* vocab_;
   std::valarray<float> probs_;
 };

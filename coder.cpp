@@ -71,11 +71,7 @@ int main( int argc, char** argv ) {
 
   for( i=0,total=0; i<CNUM; i++ ) total+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
-std::vector<bool> vocab_; vocab_.resize(256);
-for( i=0; i<CNUM; i++ ) vocab_[i] = (cmap[i]!=0);
-//byte_model_.emplace(12, 1000, bit_context_, vocab_);
-
-auto byte_model_ = new PPMD::PPMD(12, 1000, vocab_);
+auto byte_model_ = new PPMD::PPMD(12, 1000, cmap);
 
 byte_model_->Byte_Model::ByteUpdate();
 

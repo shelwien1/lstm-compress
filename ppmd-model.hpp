@@ -2,7 +2,6 @@
 #pragma once
 
 #include <memory>
-#include <vector>
 #include <valarray>
 #include "ppmd.hpp"
 
@@ -10,7 +9,7 @@ namespace PPMD {
 
 class PPMD : public Byte_Model {
  public:
-  PPMD(int order, int memory, const std::vector<bool>& vocab) : Byte_Model(vocab) {
+  PPMD(int order, int memory, char* vocab) : Byte_Model(vocab) {
     ppmd_model_.reset(new ppmd_Model());
     ppmd_model_->Init(order,memory,1,0);
   }
