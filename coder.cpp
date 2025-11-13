@@ -93,7 +93,7 @@ int main( int argc, char** argv ) {
   float lstm_gradient_clip = 2.0f;
 
   // Parse optional parameters
-  int positional_index = 4;
+  int positional_index = 0;
   for (int i = 4; i < argc; i++) {
     char* arg = argv[i];
     char* equals = strchr(arg, '=');
@@ -127,10 +127,10 @@ int main( int argc, char** argv ) {
       }
 
       *equals = '=';  // Restore original string
+      positional_index++;  // Advance to next parameter after named
     } else {
       // Positional parameter
-      int pos = positional_index - 4;
-      switch (pos) {
+      switch (positional_index) {
         case 0: ppmd_order = atoi(arg); break;
         case 1: ppmd_memory = atoi(arg); break;
         case 2: lstm_input_size = atoi(arg); break;
