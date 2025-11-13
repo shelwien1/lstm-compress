@@ -137,8 +137,8 @@ This metric balances:
 - **Parallel execution**: Uses thread pool for parallel testing
 - **Robust error handling**: Invalid results are marked and penalized
 - **Output redirection**: Coder stdout/stderr redirected to avoid clutter
-- **Result logging**: All test results are logged to a file with timestamps
-- **Cross-platform**: Works on Linux, Mac, and Windows
+- **Result logging**: All test results are logged to a file with timestamps and command lines
+- **Cross-platform**: Works on Linux, Mac, and Windows (temp files in ./lstm_optimize_temp)
 
 ## Output
 
@@ -178,11 +178,12 @@ Generation/iteration markers show optimization progress.
 
 ### Log File
 
-All test results are written to the log file (default: `optimization.log`) with timestamps. Each line contains:
+All test results are written to the log file (default: `optimization.log`) with timestamps. Each entry contains:
 - Timestamp
 - Parameter values (space-separated)
 - Test results: compressed size, compression time, decompression time, metric
-- Or "INVALID" with error message if the test failed
+- Or "INVALID" with error message if the test failed (exit codes shown in hex and decimal)
+- Command lines used for compression and decompression (for reproducibility)
 
 Example log file content:
 ```
@@ -195,8 +196,13 @@ Metric: ctime + csize/30000.0 + 3*(csize/500000.0 + dtime)
 ================================================================================
 
 [2025-01-15 10:23:45] Params: 12 90 3 10 0.05 2.0 3000 | size=1234 ctime=5.234s dtime=2.156s metric=15.678
+  CMD_COMPRESS: ./coder e input_file.txt compressed.tmp 12 128 90 3 10 0.05 2.0 3000
+  CMD_DECOMPRESS: ./coder d compressed.tmp decompressed.tmp 12 128 90 3 10 0.05 2.0 3000
 [2025-01-15 10:24:12] Params: 10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.856s dtime=1.987s metric=14.321
-[2025-01-15 10:24:38] Params: 15 120 4 20 0.1 3.0 5000 | INVALID: Timeout
+  CMD_COMPRESS: ./coder e input_file.txt compressed.tmp 10 128 75 2 8 0.03 1.5 2500
+  CMD_DECOMPRESS: ./coder d compressed.tmp decompressed.tmp 10 128 75 2 8 0.03 1.5 2500
+[2025-01-15 10:24:38] Params: 15 120 4 20 0.1 3.0 5000 | INVALID: Exit code 0xC0000005 (-1073741819)
+  CMD_COMPRESS: ./coder e input_file.txt compressed.tmp 15 128 120 4 20 0.1 3.0 5000
 
 ================================================================================
 OPTIMIZATION COMPLETE

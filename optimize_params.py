@@ -106,6 +106,8 @@ class TestResult:
     valid: bool = False
     metric: Optional[float] = None
     error: Optional[str] = None
+    cmd_compress: Optional[str] = None
+    cmd_decompress: Optional[str] = None
 
 
 class ParamOptimizer:
@@ -156,8 +158,8 @@ class ParamOptimizer:
         self.dspeed = 4 * 1000 * 1000 / 8  # 500000 bytes/sec
         self.nusers = 3
 
-        # Temporary directory for test files
-        self.temp_dir = Path("/tmp/lstm_optimize")
+        # Temporary directory for test files (in current directory for cross-platform)
+        self.temp_dir = Path("./lstm_optimize_temp")
         self.temp_dir.mkdir(exist_ok=True)
 
         # Initialize log file
@@ -213,8 +215,11 @@ class ParamOptimizer:
         return metric
 
     def run_coder(self, mode: str, input_file: str, output_file: str,
-                  params: Dict, timeout: float) -> Tuple[bool, float, Optional[str]]:
-        """Run coder with given parameters and timeout"""
+                  params: Dict, timeout: float) -> Tuple[bool, float, Optional[str], str]:
+        """Run coder with given parameters and timeout
+
+        Returns: (success, elapsed_time, error_message, command_line)
+        """
         # Build command
         cmd = [self.coder_path, mode, input_file, output_file]
 
@@ -227,6 +232,9 @@ class ParamOptimizer:
                     'lstm_gradient_clip', 'update_limit']:
             if key in params_with_fixed:
                 cmd.append(str(params_with_fixed[key]))
+
+        # Create command line string for logging
+        cmd_str = ' '.join(cmd)
 
         # Run with timeout, redirect output, and suppress crash dialogs
         try:
@@ -244,17 +252,18 @@ class ParamOptimizer:
             if result.returncode != 0:
                 # Negative return codes typically indicate crashes/signals
                 if result.returncode < 0:
-                    return False, 0.0, f"Crashed (signal {-result.returncode})"
+                    return False, 0.0, f"Crashed (signal {-result.returncode})", cmd_str
                 else:
-                    return False, 0.0, f"Exit code {result.returncode}"
+                    # Print exit code in hex and decimal
+                    return False, 0.0, f"Exit code 0x{result.returncode:X} ({result.returncode})", cmd_str
 
-            return True, elapsed, None
+            return True, elapsed, None, cmd_str
         except subprocess.TimeoutExpired:
-            return False, timeout, "Timeout"
+            return False, timeout, "Timeout", cmd_str
         except subprocess.CalledProcessError as e:
-            return False, 0.0, f"Exit code {e.returncode}"
+            return False, 0.0, f"Exit code 0x{e.returncode:X} ({e.returncode})", cmd_str
         except Exception as e:
-            return False, 0.0, str(e)
+            return False, 0.0, str(e), cmd_str
 
     def test_params(self, params: Dict) -> TestResult:
         """Test a parameter set and return results"""
@@ -279,9 +288,10 @@ class ParamOptimizer:
         try:
             # Test compression
             timeout = self.worst_ctime * self.timeout_multiplier
-            success, ctime, error = self.run_coder(
+            success, ctime, error, cmd = self.run_coder(
                 'e', self.input_file, str(compressed_file), params, timeout
             )
+            result.cmd_compress = cmd
 
             if not success:
                 result.error = f"Compression failed: {error}"
@@ -300,10 +310,11 @@ class ParamOptimizer:
                     result.valid = True
                 else:
                     timeout = self.worst_dtime * self.timeout_multiplier
-                    success, dtime, error = self.run_coder(
+                    success, dtime, error, dcmd = self.run_coder(
                         'd', str(compressed_file), str(decompressed_file),
                         params, timeout
                     )
+                    result.cmd_decompress = dcmd
 
                     if not success:
                         result.error = f"Decompression failed: {error}"
@@ -365,6 +376,12 @@ class ParamOptimizer:
                            f"dtime={result.dtime:.3f}s metric={result.metric:.3f}")
                 else:
                     f.write(f" | INVALID: {result.error}")
+
+                # Write command lines
+                if result.cmd_compress:
+                    f.write(f"\n  CMD_COMPRESS: {result.cmd_compress}")
+                if result.cmd_decompress:
+                    f.write(f"\n  CMD_DECOMPRESS: {result.cmd_decompress}")
 
                 f.write("\n")
 
