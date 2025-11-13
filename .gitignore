@@ -1,8 +1,8 @@
 # Build artifacts
-0004/coder
-0004/coder.exe
-0004/*.o
+coder
+coder.exe
+*.o
 
 # Test files
-0004/1
-0004/2
+1
+2

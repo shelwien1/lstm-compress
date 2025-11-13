@@ -3,8 +3,6 @@ set -e
 
 echo "Building LSTM compressor..."
 
-cd 0004
-
 # Clean previous build
 rm -f coder *.o
 
@@ -19,4 +17,4 @@ OPTS="-fomit-frame-pointer -fno-stack-protector -fno-stack-check -fno-check-new 
 g++ -s -std=gnu++17 -O3 -Ofast -march=native -mtune=native \
     $INCS $OPTS -static coder.cpp mim-src/static.c -o coder
 
-echo "Build complete: 0004/coder"
+echo "Build complete: coder"
