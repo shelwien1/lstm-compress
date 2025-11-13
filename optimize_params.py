@@ -109,6 +109,10 @@ FLOAT_PRECISION = {
     'lstm_gradient_clip': 2,
 }
 
+# Number of retests to attempt for suspicious results (1 initial run + RETEST_MAX-1 retests)
+RETEST_MAX = 2
+RETEST_ACCEPT_REL_DIFF = 0.10  # accept if median result within 10%
+
 
 @dataclass
 class TestResult:
@@ -212,11 +216,19 @@ class ParamOptimizer:
         if hasattr(signal, 'SIGTERM'):
             signal.signal(signal.SIGTERM, self._signal_handler)
 
-        # Run baseline test with default parameters
-        self.run_baseline()
+        # Persistent cache file
+        self.cache_file = Path("optimize_cache.json")
+        self._load_cache()
 
-        # Test previous best parameters from result.txt if it exists
+        # Test previous best parameters from result.txt if it exists and accept them as starting best
+        # (if you prefer baseline as the guaranteed known-good, swap order or use --prefer-baseline flag)
         self.test_previous_best()
+
+        # If no valid previous best was found, run baseline to establish a starting point
+        if self.best_result is None:
+            self.run_baseline()
+        else:
+            print("\nUsing previous best from result.txt as initial best.\n")
 
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals (Ctrl-C)"""
@@ -251,6 +263,9 @@ class ParamOptimizer:
                         pass  # Process may have already terminated
                 self.running_processes.clear()
 
+        # Save cache before cleaning up
+        self._save_cache()
+
         # Clean up temporary directory
         if hasattr(self, 'temp_dir') and self.temp_dir.exists():
             try:
@@ -268,6 +283,48 @@ class ParamOptimizer:
             for byte_block in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
+
+    def _load_cache(self):
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, 'r') as f:
+                    raw = json.load(f)
+                # raw should be mapping key -> serialized TestResult-ish dict
+                for k, v in raw.items():
+                    tr = TestResult(params=v.get('params', {}),
+                                    csize=v.get('csize'),
+                                    ctime=v.get('ctime'),
+                                    dtime=v.get('dtime'),
+                                    valid=v.get('valid', False),
+                                    metric=v.get('metric'),
+                                    error=v.get('error'),
+                                    cmd_compress=v.get('cmd_compress'),
+                                    cmd_decompress=v.get('cmd_decompress'))
+                    self.cache[k] = tr
+                print(f"Loaded {len(self.cache)} cached results from {self.cache_file}")
+            except Exception as e:
+                print(f"Warning: failed to load cache: {e}")
+
+    def _save_cache(self):
+        try:
+            out = {}
+            with self.cache_lock:
+                for k, v in self.cache.items():
+                    out[k] = {
+                        'params': v.params,
+                        'csize': v.csize,
+                        'ctime': v.ctime,
+                        'dtime': v.dtime,
+                        'valid': v.valid,
+                        'metric': v.metric,
+                        'error': v.error,
+                        'cmd_compress': v.cmd_compress,
+                        'cmd_decompress': v.cmd_decompress,
+                    }
+            with open(self.cache_file, 'w') as f:
+                json.dump(out, f)
+        except Exception as e:
+            print(f"Warning: failed to save cache: {e}")
 
     def run_baseline(self):
         """Run baseline test with default parameters to establish known good result"""
@@ -346,20 +403,29 @@ class ParamOptimizer:
         print()
 
     def params_to_key(self, params: Dict) -> str:
-        """Convert parameter dict to a hashable key using MD5"""
-        # Round integers and floats to eliminate duplicate tests from float drift
+        '''Canonicalize params (include all optimized keys) and return an MD5 key.'''
         normalized = {}
-        for k, v in params.items():
-            if k in PARAM_TYPES and PARAM_TYPES[k] == int:
-                # Force integer parameters to be integers (avoid 12.0 vs 12)
-                normalized[k] = int(round(v)) if isinstance(v, (int, float)) else v
-            elif isinstance(v, float):
-                # Use per-parameter precision
-                precision = FLOAT_PRECISION.get(k, 4)
-                normalized[k] = round(float(v), precision)
+        # Ensure every parameter in PARAM_BOUNDS is present in the canonical key
+        for name in sorted(PARAM_BOUNDS.keys()):
+            if name in params:
+                v = params[name]
             else:
-                normalized[k] = v
-        # Use MD5 hash for faster comparison
+                # prefer explicit default if available, otherwise use middle of bounds
+                if name in PARAM_DEFAULTS:
+                    v = PARAM_DEFAULTS[name]
+                else:
+                    lo, hi = PARAM_BOUNDS[name]
+                    # For log-scale params the bounds are in log-space, but defaults are expected in real space.
+                    v = (10 ** ((lo + hi) / 2.0)) if name in LOG_SCALE_PARAMS else (lo + hi) / 2.0
+
+            if name in PARAM_TYPES and PARAM_TYPES[name] == int:
+                normalized[name] = int(round(v))
+            elif isinstance(v, float):
+                precision = FLOAT_PRECISION.get(name, 4)
+                normalized[name] = round(float(v), precision)
+            else:
+                normalized[name] = v
+
         json_str = json.dumps(normalized, sort_keys=True)
         return hashlib.md5(json_str.encode()).hexdigest()
 
@@ -566,7 +632,6 @@ class ParamOptimizer:
 
         # Check for suspiciously good results and retest if needed
         if result.valid and not is_retest and self.best_result and self.best_result.valid:
-            # Check if any metric is 2x or more better than best
             suspiciously_good = False
             reasons = []
 
@@ -583,9 +648,40 @@ class ParamOptimizer:
                 reasons.append(f"dtime {result.dtime:.2f}s vs best {self.best_result.dtime:.2f}s")
 
             if suspiciously_good:
-                print(f"\nSuspiciously good result detected ({', '.join(reasons)}), retesting...")
-                # Don't cache this result, retest instead
-                return self.test_params(params, is_retest=True)
+                print(f"\nSuspiciously good result detected ({', '.join(reasons)}). Retesting up to 3 times...")
+                # Perform multiple retests and accept if results are consistent (median within 10%)
+                collected = [result.metric]
+                for i in range(RETEST_MAX - 1):
+                    r = self.test_params(params, is_retest=True)
+                    if not r.valid:
+                        # a retest failed: tiebreak in favor of previous best (keep current result invalid)
+                        print(f"Retest {i+1} FAILED: {r.error}")
+                        collected.append(None)
+                        break
+                    collected.append(r.metric)
+
+                # Filter out failed retests
+                good_runs = [m for m in collected if m is not None]
+                if len(good_runs) == 0:
+                    # All retests failed — keep original (invalid) path
+                    return result
+                median_metric = sorted(good_runs)[len(good_runs)//2]
+                # If the median metric is within 10% of the suspicious run, accept it
+                if abs(median_metric - result.metric) / max(1.0, result.metric) <= RETEST_ACCEPT_REL_DIFF:
+                    print("Suspicious result reproduced; accepting it.")
+                    # continue to caching and best-result update below (we want to accept it)
+                else:
+                    print("Suspicious result not reproduced consistently; discarding.")
+                    # Keep the previous best; treat the suspicious run as an outlier (mark invalid)
+                    result.valid = False
+                    result.error = "Suspicious result not reproduced on retest"
+                    # Cache the rejected run too for reproducibility and continue
+                    with self.cache_lock:
+                        self.cache[self.params_to_key(params)] = result
+                    # Log and return
+                    self.log_result(result)
+                    self.print_result(result, self.test_count)
+                    return result
 
         # Cache result
         with self.cache_lock:
@@ -759,12 +855,6 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
-        # Note: We don't pass an initial population to DE because it requires
-        # at least 5 individuals. However, the best GA result is already cached,
-        # so DE will benefit from it during evaluation.
-        if warm_start and self.best_result and self.best_result.valid:
-            print(f"Starting from best known result (metric={self.best_result.metric:.2f})")
-
         # Callback to print iteration progress and check early stopping
         iteration = [0]
         def callback(xk, convergence):
@@ -786,6 +876,23 @@ class ParamOptimizer:
             'seed': 42,
             'callback': callback
         }
+
+        # Add init parameter if warm starting
+        if warm_start and self.best_result and self.best_result.valid:
+            print("Using warm start from best result to initialize DE population...")
+            base_arr = self.params_dict_to_array(self.best_result.params)
+            popsize = 15  # or pick based on default DE population size heuristic
+            init_population = []
+            rng = np.random.default_rng(42)
+            for i in range(popsize):
+                # small gaussian perturbation in the scaled coordinates
+                noise = rng.normal(scale=0.02, size=base_arr.shape) * (np.array([b[1]-b[0] for b in bounds]))
+                cand = base_arr + noise
+                # Clip to bounds
+                for j, (lo, hi) in enumerate(bounds):
+                    cand[j] = np.clip(cand[j], lo, hi)
+                init_population.append(cand)
+            de_kwargs['init'] = np.array(init_population)
 
         result = differential_evolution(**de_kwargs)
 
