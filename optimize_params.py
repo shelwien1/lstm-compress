@@ -866,10 +866,11 @@ class ParamOptimizer:
             return False
 
         # Run optimization without integrality constraints (handled in objective_function)
+        # Use ThreadPoolExecutor instead of multiprocessing to avoid pickling issues with locks
         de_kwargs = {
             'func': self.objective_function,
             'bounds': bounds,
-            'workers': self.num_threads,
+            'workers': ThreadPoolExecutor(max_workers=self.num_threads).map,
             'maxiter': max_iter,
             'disp': False,
             'updating': 'deferred',  # Parallel evaluation
