@@ -728,10 +728,11 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         for i, name in enumerate(param_names):
             min_val, max_val = PARAM_BOUNDS[name]
-            if PARAM_TYPES[name] == int:
-                toolbox.register(f"attr_{i}", random.randint, min_val, max_val)
-            else:
+            # Use uniform for log-scale params and floats, randint for regular integers
+            if name in LOG_SCALE_PARAMS or PARAM_TYPES[name] == float:
                 toolbox.register(f"attr_{i}", random.uniform, min_val, max_val)
+            else:
+                toolbox.register(f"attr_{i}", random.randint, int(min_val), int(max_val))
 
         # Individual and population
         attrs = [getattr(toolbox, f"attr_{i}") for i in range(len(param_names))]
