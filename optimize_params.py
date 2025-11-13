@@ -15,6 +15,33 @@ from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
 import numpy as np
 from pathlib import Path
+import platform
+
+# Windows-specific imports for crash dialog suppression
+if platform.system() == 'Windows':
+    import ctypes
+    from ctypes import wintypes
+
+    # Disable Windows Error Reporting dialogs
+    SEM_NOGPFAULTERRORBOX = 0x0002
+    SEM_FAILCRITICALERRORS = 0x0001
+    SEM_NOOPENFILEERRORBOX = 0x8000
+
+    def disable_crash_dialogs():
+        """Disable Windows crash dialogs for the current process"""
+        # Set error mode to prevent crash dialog boxes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX)
+
+    # Subprocess creation flags for Windows
+    CREATE_NO_WINDOW = 0x08000000
+    SUBPROCESS_FLAGS = CREATE_NO_WINDOW
+else:
+    def disable_crash_dialogs():
+        """No-op on non-Windows systems"""
+        pass
+
+    SUBPROCESS_FLAGS = 0
 
 # Try to import optimization libraries
 try:
@@ -88,17 +115,25 @@ class ParamOptimizer:
                  num_threads: int = 7, skip_decompression: bool = False,
                  timeout_multiplier: float = 2.0):
         self.input_file = input_file
-        self.coder_path = "./coder"
         self.num_threads = num_threads
         self.skip_decompression = skip_decompression
         self.timeout_multiplier = timeout_multiplier
         self.log_file = log_file
 
-        # Check if coder exists
-        if not os.path.exists(self.coder_path):
-            print(f"Error: Coder binary not found at {self.coder_path}")
+        # Check for coder binary (both coder and coder.exe)
+        self.coder_path = None
+        for name in ["./coder", "./coder.exe"]:
+            if os.path.exists(name):
+                self.coder_path = name
+                break
+
+        if self.coder_path is None:
+            print("Error: Coder binary not found (tried ./coder and ./coder.exe)")
             print("Please run ./build.sh first to compile the coder.")
             sys.exit(1)
+
+        # Disable crash dialogs (Windows only)
+        disable_crash_dialogs()
 
         # Cache for tested parameter sets
         self.cache: Dict[str, TestResult] = {}
@@ -169,7 +204,7 @@ class ParamOptimizer:
             if key in params_with_fixed:
                 cmd.append(str(params_with_fixed[key]))
 
-        # Run with timeout, redirect output
+        # Run with timeout, redirect output, and suppress crash dialogs
         try:
             start_time = time.time()
             result = subprocess.run(
@@ -177,9 +212,18 @@ class ParamOptimizer:
                 timeout=timeout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                check=True
+                creationflags=SUBPROCESS_FLAGS  # Suppress crash dialogs on Windows
             )
             elapsed = time.time() - start_time
+
+            # Check return code - treat crashes as failures
+            if result.returncode != 0:
+                # Negative return codes typically indicate crashes/signals
+                if result.returncode < 0:
+                    return False, 0.0, f"Crashed (signal {-result.returncode})"
+                else:
+                    return False, 0.0, f"Exit code {result.returncode}"
+
             return True, elapsed, None
         except subprocess.TimeoutExpired:
             return False, timeout, "Timeout"

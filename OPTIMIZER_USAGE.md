@@ -26,7 +26,9 @@ Basic usage:
 ./optimize_params.py <input_file> [options]
 ```
 
-The script automatically looks for `./coder` binary and will exit if not found.
+The script automatically looks for `./coder` (Linux/Mac) or `./coder.exe` (Windows) and will exit if not found.
+
+**Note:** On Windows, crash dialogs are automatically suppressed to prevent interruption during optimization.
 
 ### Options
 
@@ -129,11 +131,13 @@ This metric balances:
 
 - **Caching**: All parameter sets are cached to avoid retesting
 - **Timeout protection**: Kills runs that take >200% of worst known time
+- **Crash handling**: Crashes are detected and logged without showing error dialogs (Windows)
 - **Progress tracking**: Prints current and best results after each test
 - **Parallel execution**: Uses thread pool for parallel testing
 - **Robust error handling**: Invalid results are marked and penalized
 - **Output redirection**: Coder stdout/stderr redirected to avoid clutter
 - **Result logging**: All test results are logged to a file with timestamps
+- **Cross-platform**: Works on Linux, Mac, and Windows
 
 ## Output
 
