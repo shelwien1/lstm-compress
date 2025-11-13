@@ -108,6 +108,10 @@ class ParamOptimizer:
         self.best_result: Optional[TestResult] = None
         self.best_lock = threading.Lock()
 
+        # Track test count
+        self.test_count = 0
+        self.count_lock = threading.Lock()
+
         # Track worst time for timeout calculation
         self.worst_ctime: float = 60.0  # Initial estimate
         self.worst_dtime: float = 60.0
@@ -192,6 +196,11 @@ class ParamOptimizer:
             if key in self.cache:
                 return self.cache[key]
 
+        # Increment test count for new test
+        with self.count_lock:
+            self.test_count += 1
+            current_test = self.test_count
+
         result = TestResult(params=params.copy())
 
         # Create unique temporary files
@@ -265,7 +274,7 @@ class ParamOptimizer:
         self.log_result(result)
 
         # Print progress
-        self.print_result(result)
+        self.print_result(result, current_test)
 
         return result
 
@@ -291,31 +300,27 @@ class ParamOptimizer:
 
                 f.write("\n")
 
-    def print_result(self, result: TestResult):
+    def print_result(self, result: TestResult, test_num: int):
         """Print test result"""
-        print("\n" + "="*80)
-        print("Current params:")
-        self.print_params(result.params)
+        print()  # Empty line
 
+        # Current params on one line
+        param_str = " ".join(f"{v}" for k, v in sorted(result.params.items()))
         if result.valid:
-            print(f"Stats: size={result.csize} ctime={result.ctime:.2f}s "
-                  f"dtime={result.dtime:.2f}s metric={result.metric:.2f}")
+            print(f"Test {test_num}: {param_str} | size={result.csize} "
+                  f"ctime={result.ctime:.2f}s dtime={result.dtime:.2f}s "
+                  f"metric={result.metric:.2f}")
         else:
-            print(f"INVALID: {result.error}")
+            print(f"Test {test_num}: {param_str} | INVALID: {result.error}")
 
+        # Best params on one line
         if self.best_result and self.best_result.valid:
-            print("\nBest params:")
-            self.print_params(self.best_result.params)
-            print(f"Best stats: size={self.best_result.csize} "
-                  f"ctime={self.best_result.ctime:.2f}s "
-                  f"dtime={self.best_result.dtime:.2f}s "
+            best_param_str = " ".join(f"{v}" for k, v in sorted(self.best_result.params.items()))
+            print(f"Best:      {best_param_str} | size={self.best_result.csize} "
+                  f"ctime={self.best_result.ctime:.2f}s dtime={self.best_result.dtime:.2f}s "
                   f"metric={self.best_result.metric:.2f}")
-        print("="*80)
-        sys.stdout.flush()
 
-    def print_params(self, params: Dict):
-        """Print parameter set"""
-        print(" ".join(f"{v}" for k, v in sorted(params.items())))
+        sys.stdout.flush()
 
     def params_array_to_dict(self, arr: np.ndarray) -> Dict:
         """Convert parameter array to dict with proper types"""
@@ -361,22 +366,29 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
+        # Callback to print iteration progress
+        iteration = [0]
+        def callback(xk, convergence):
+            iteration[0] += 1
+            print(f"\n--- DE Iteration {iteration[0]}/{max_iter} ---")
+            return False
+
         # Run optimization
         result = differential_evolution(
             self.objective_function,
             bounds,
             workers=self.num_threads,
             maxiter=max_iter,
-            disp=True,
+            disp=False,
             updating='deferred',  # Parallel evaluation
-            seed=42
+            seed=42,
+            callback=callback
         )
 
-        print(f"\nOptimization complete!")
+        print(f"\n\nDifferential Evolution complete!")
         print(f"Best metric: {result.fun:.2f}")
-        print(f"Best parameters:")
-        best_params = self.params_array_to_dict(result.x)
-        self.print_params(best_params)
+        param_str = " ".join(f"{v}" for k, v in sorted(self.params_array_to_dict(result.x).items()))
+        print(f"Best parameters: {param_str}")
 
     def optimize_genetic_algorithm(self, population_size: int = 50,
                                    generations: int = 50):
@@ -432,11 +444,44 @@ class ParamOptimizer:
         # Create initial population
         pop = toolbox.population(n=population_size)
 
-        # Run GA
-        algorithms.eaSimple(pop, toolbox, cxpb=0.7, mutpb=0.3,
-                           ngen=generations, verbose=True)
+        # Run GA with generation tracking
+        print(f"\n--- GA Generation 0/{generations} (Initial population) ---")
 
-        print("\nGenetic Algorithm optimization complete!")
+        # Evaluate initial population
+        fitnesses = list(toolbox.map(toolbox.evaluate, pop))
+        for ind, fit in zip(pop, fitnesses):
+            ind.fitness.values = fit
+
+        # Evolution loop
+        for gen in range(1, generations + 1):
+            print(f"\n--- GA Generation {gen}/{generations} ---")
+
+            # Select offspring
+            offspring = toolbox.select(pop, len(pop))
+            offspring = list(toolbox.map(toolbox.clone, offspring))
+
+            # Apply crossover and mutation
+            for child1, child2 in zip(offspring[::2], offspring[1::2]):
+                if random.random() < 0.7:
+                    toolbox.mate(child1, child2)
+                    del child1.fitness.values
+                    del child2.fitness.values
+
+            for mutant in offspring:
+                if random.random() < 0.3:
+                    toolbox.mutate(mutant)
+                    del mutant.fitness.values
+
+            # Evaluate individuals with invalid fitness
+            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+            fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+            for ind, fit in zip(invalid_ind, fitnesses):
+                ind.fitness.values = fit
+
+            # Replace population
+            pop[:] = offspring
+
+        print("\n\nGenetic Algorithm optimization complete!")
 
     def optimize_hybrid(self, ga_generations: int = 20, de_maxiter: int = 20):
         """Hybrid optimization: GA first, then DE refinement"""
@@ -514,17 +559,13 @@ def main():
         )
 
     # Print final results
-    print("\n" + "="*80)
-    print("OPTIMIZATION COMPLETE")
-    print("="*80)
+    print("\n\n=== OPTIMIZATION COMPLETE ===")
     if optimizer.best_result:
-        print("\nBest parameters found:")
-        optimizer.print_params(optimizer.best_result.params)
-        print(f"\nBest metric: {optimizer.best_result.metric:.2f}")
-        print(f"Size: {optimizer.best_result.csize} bytes")
-        print(f"Compression time: {optimizer.best_result.ctime:.2f}s")
-        print(f"Decompression time: {optimizer.best_result.dtime:.2f}s")
-        print(f"\nTested {len(optimizer.cache)} unique parameter sets")
+        param_str = " ".join(f"{v}" for k, v in sorted(optimizer.best_result.params.items()))
+        print(f"\nBest: {param_str} | size={optimizer.best_result.csize} "
+              f"ctime={optimizer.best_result.ctime:.2f}s dtime={optimizer.best_result.dtime:.2f}s "
+              f"metric={optimizer.best_result.metric:.2f}")
+        print(f"Tested {len(optimizer.cache)} unique parameter sets")
         print(f"Results logged to: {args.log}")
 
         # Log final summary

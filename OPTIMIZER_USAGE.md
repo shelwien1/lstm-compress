@@ -147,16 +147,25 @@ After each test, the script prints:
 
 Example console output:
 ```
-================================================================================
-Current params:
-12 90 3 10 0.05 2.0 3000
-Stats: size=1234 ctime=5.23s dtime=2.15s metric=15.67
+--- GA Generation 1/50 ---
 
-Best params:
-10 75 2 8 0.03 1.5 2500
-Best stats: size=1198 ctime=4.85s dtime=1.98s metric=14.32
-================================================================================
+Test 1: 12 90 3 10 0.05 2.0 3000 | size=1234 ctime=5.23s dtime=2.15s metric=15.67
+Best:   12 90 3 10 0.05 2.0 3000 | size=1234 ctime=5.23s dtime=2.15s metric=15.67
+
+Test 2: 10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.85s dtime=1.98s metric=14.32
+Best:   10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.85s dtime=1.98s metric=14.32
+
+Test 3: 15 120 4 20 0.1 3.0 5000 | INVALID: Timeout
+Best:   10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.85s dtime=1.98s metric=14.32
 ```
+
+Each test shows:
+- Test number
+- Parameter values (space-separated)
+- Results (size, compression time, decompression time, metric) or INVALID
+- Current best result
+
+Generation/iteration markers show optimization progress.
 
 ### Log File
 
