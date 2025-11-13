@@ -175,7 +175,7 @@ class ParamOptimizer:
             f.write(f"Input file hash: {self.input_file_hash}\n")
             f.write(f"Threads: {self.num_threads}\n")
             f.write(f"Skip decompression: {self.skip_decompression}\n")
-            f.write(f"Metric: ctime + csize/{self.uspeed} + {self.nusers}*(csize/{self.dspeed} + dtime)\n")
+            f.write(f"Metric: ctime + 5*csize/{self.uspeed} + {self.nusers}*(5*csize/{self.dspeed} + dtime)\n")
             f.write("=" * 80 + "\n\n")
 
         # Run baseline test with default parameters
@@ -225,8 +225,9 @@ class ParamOptimizer:
 
     def calculate_metric(self, csize: int, ctime: float, dtime: float) -> float:
         """Calculate optimization metric (lower is better)"""
-        metric = (ctime + csize / self.uspeed +
-                 self.nusers * (csize / self.dspeed + dtime))
+        # Increase csize cost by 5x to prioritize smaller compressed sizes
+        metric = (ctime + 5 * csize / self.uspeed +
+                 self.nusers * (5 * csize / self.dspeed + dtime))
         return metric
 
     def run_coder(self, mode: str, input_file: str, output_file: str,
