@@ -1,9 +1,12 @@
 #ifndef PPMD_H
 #define PPMD_H
 
-#include "byte-model.h"
-
+// byte-model.h is now in lstm-model.inc, which is included before this file
 #include <memory>
+#include <valarray>
+#include <vector>
+
+class Byte_Model;
 
 namespace PPMD {
 

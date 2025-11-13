@@ -1,6 +1,18 @@
 
 #include "mim-include/mimalloc-new-delete.h"
 
+#include <math.h>
+#include <cstdint>
+#include <vector>
+#include <valarray>
+#include <numeric>
+#include <memory>
+#include <stdlib.h>
+#include <fstream>
+#include <iostream>
+#include <algorithm>
+#include <string>
+
 typedef unsigned char  byte;
 typedef unsigned int uint;
 typedef unsigned long long qword;
