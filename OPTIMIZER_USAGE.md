@@ -26,9 +26,11 @@ Basic usage:
 ./optimize_params.py <input_file> [options]
 ```
 
+The script automatically looks for `./coder` binary and will exit if not found.
+
 ### Options
 
-- `--coder PATH`: Path to coder binary (default: ./coder)
+- `--log FILE`: Log file for all test results (default: optimization.log)
 - `--threads N`: Number of parallel threads (default: 7)
 - `--skip-decompress`: Skip decompression test, assume same time as compression
 - `--method METHOD`: Optimization method: 'de', 'ga', or 'hybrid' (default: hybrid)
@@ -58,9 +60,9 @@ Basic usage:
 ./optimize_params.py build.sh --skip-decompress --threads 14
 ```
 
-5. **Custom input file:**
+5. **Custom input file with custom log:**
 ```bash
-./optimize_params.py /path/to/large/file.txt --threads 7
+./optimize_params.py /path/to/large/file.txt --log my_results.log --threads 7
 ```
 
 ## How it Works
@@ -129,8 +131,11 @@ This metric balances:
 - **Parallel execution**: Uses thread pool for parallel testing
 - **Robust error handling**: Invalid results are marked and penalized
 - **Output redirection**: Coder stdout/stderr redirected to avoid clutter
+- **Result logging**: All test results are logged to a file with timestamps
 
 ## Output
+
+### Console Output
 
 After each test, the script prints:
 - Current parameter values (space-separated)
@@ -138,7 +143,7 @@ After each test, the script prints:
 - Best parameter values found so far
 - Best stats
 
-Example output:
+Example console output:
 ```
 ================================================================================
 Current params:
@@ -151,16 +156,51 @@ Best stats: size=1198 ctime=4.85s dtime=1.98s metric=14.32
 ================================================================================
 ```
 
+### Log File
+
+All test results are written to the log file (default: `optimization.log`) with timestamps. Each line contains:
+- Timestamp
+- Parameter values (space-separated)
+- Test results: compressed size, compression time, decompression time, metric
+- Or "INVALID" with error message if the test failed
+
+Example log file content:
+```
+LSTM Compressor Parameter Optimization Log
+================================================================================
+Input file: build.sh
+Threads: 7
+Skip decompression: False
+Metric: ctime + csize/30000.0 + 3*(csize/500000.0 + dtime)
+================================================================================
+
+[2025-01-15 10:23:45] Params: 12 90 3 10 0.05 2.0 3000 | size=1234 ctime=5.234s dtime=2.156s metric=15.678
+[2025-01-15 10:24:12] Params: 10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.856s dtime=1.987s metric=14.321
+[2025-01-15 10:24:38] Params: 15 120 4 20 0.1 3.0 5000 | INVALID: Timeout
+
+================================================================================
+OPTIMIZATION COMPLETE
+================================================================================
+Best params: 10 75 2 8 0.03 1.5 2500
+Best metric: 14.321
+Size: 1198 bytes
+Compression time: 4.856s
+Decompression time: 1.987s
+Tested 48 unique parameter sets
+```
+
+This log file can be analyzed later to:
+- Review all tested parameter combinations
+- Track optimization progress over time
+- Resume or refine optimization with different methods
+
 ## Tips
 
 1. **Start small**: Test with a small file first to verify setup
 2. **Use more threads**: If you have CPU cores available, increase `--threads`
 3. **Skip decompression**: Use `--skip-decompress` for faster exploration
-4. **Save results**: Redirect output to a file to save all results:
-   ```bash
-   ./optimize_params.py input.txt 2>&1 | tee optimization.log
-   ```
-5. **Multiple runs**: The script uses random seeds, so run multiple times and compare
+4. **Review the log**: Check `optimization.log` (or your custom log file) to analyze all tested combinations
+5. **Multiple runs**: The script uses random seeds, so run multiple times and compare results
 
 ## Troubleshooting
 

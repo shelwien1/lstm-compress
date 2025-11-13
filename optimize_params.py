@@ -84,14 +84,21 @@ class TestResult:
 class ParamOptimizer:
     """Optimizer for LSTM compressor parameters"""
 
-    def __init__(self, input_file: str, coder_path: str = "./coder",
+    def __init__(self, input_file: str, log_file: str = "optimization.log",
                  num_threads: int = 7, skip_decompression: bool = False,
                  timeout_multiplier: float = 2.0):
         self.input_file = input_file
-        self.coder_path = coder_path
+        self.coder_path = "./coder"
         self.num_threads = num_threads
         self.skip_decompression = skip_decompression
         self.timeout_multiplier = timeout_multiplier
+        self.log_file = log_file
+
+        # Check if coder exists
+        if not os.path.exists(self.coder_path):
+            print(f"Error: Coder binary not found at {self.coder_path}")
+            print("Please run ./build.sh first to compile the coder.")
+            sys.exit(1)
 
         # Cache for tested parameter sets
         self.cache: Dict[str, TestResult] = {}
@@ -113,6 +120,17 @@ class ParamOptimizer:
         # Temporary directory for test files
         self.temp_dir = Path("/tmp/lstm_optimize")
         self.temp_dir.mkdir(exist_ok=True)
+
+        # Initialize log file
+        self.log_lock = threading.Lock()
+        with open(self.log_file, 'w') as f:
+            f.write("LSTM Compressor Parameter Optimization Log\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Input file: {self.input_file}\n")
+            f.write(f"Threads: {self.num_threads}\n")
+            f.write(f"Skip decompression: {self.skip_decompression}\n")
+            f.write(f"Metric: ctime + csize/{self.uspeed} + {self.nusers}*(csize/{self.dspeed} + dtime)\n")
+            f.write("=" * 80 + "\n\n")
 
     def params_to_key(self, params: Dict) -> str:
         """Convert parameter dict to a hashable key"""
@@ -243,10 +261,35 @@ class ParamOptimizer:
                 if self.best_result is None or result.metric < self.best_result.metric:
                     self.best_result = result
 
+        # Log to file
+        self.log_result(result)
+
         # Print progress
         self.print_result(result)
 
         return result
+
+    def log_result(self, result: TestResult):
+        """Log test result to file"""
+        with self.log_lock:
+            with open(self.log_file, 'a') as f:
+                # Write timestamp
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"[{timestamp}] ")
+
+                # Write parameters
+                param_names = sorted(result.params.keys())
+                param_str = " ".join(f"{result.params[k]}" for k in param_names)
+                f.write(f"Params: {param_str}")
+
+                # Write results
+                if result.valid:
+                    f.write(f" | size={result.csize} ctime={result.ctime:.3f}s "
+                           f"dtime={result.dtime:.3f}s metric={result.metric:.3f}")
+                else:
+                    f.write(f" | INVALID: {result.error}")
+
+                f.write("\n")
 
     def print_result(self, result: TestResult):
         """Print test result"""
@@ -416,8 +459,8 @@ def main():
         description="Optimize LSTM compressor parameters"
     )
     parser.add_argument("input_file", help="Input file for testing")
-    parser.add_argument("--coder", default="./coder",
-                       help="Path to coder binary (default: ./coder)")
+    parser.add_argument("--log", default="optimization.log",
+                       help="Log file for results (default: optimization.log)")
     parser.add_argument("--threads", type=int, default=7,
                        help="Number of threads (default: 7)")
     parser.add_argument("--skip-decompress", action="store_true",
@@ -438,15 +481,10 @@ def main():
         print(f"Error: Input file not found: {args.input_file}")
         return 1
 
-    # Check coder binary exists
-    if not os.path.exists(args.coder):
-        print(f"Error: Coder binary not found: {args.coder}")
-        return 1
-
-    # Create optimizer
+    # Create optimizer (will check for ./coder binary)
     optimizer = ParamOptimizer(
         input_file=args.input_file,
-        coder_path=args.coder,
+        log_file=args.log,
         num_threads=args.threads,
         skip_decompression=args.skip_decompress
     )
@@ -487,8 +525,24 @@ def main():
         print(f"Compression time: {optimizer.best_result.ctime:.2f}s")
         print(f"Decompression time: {optimizer.best_result.dtime:.2f}s")
         print(f"\nTested {len(optimizer.cache)} unique parameter sets")
+        print(f"Results logged to: {args.log}")
+
+        # Log final summary
+        with open(args.log, 'a') as f:
+            f.write("\n" + "="*80 + "\n")
+            f.write("OPTIMIZATION COMPLETE\n")
+            f.write("="*80 + "\n")
+            param_names = sorted(optimizer.best_result.params.keys())
+            param_str = " ".join(f"{optimizer.best_result.params[k]}" for k in param_names)
+            f.write(f"Best params: {param_str}\n")
+            f.write(f"Best metric: {optimizer.best_result.metric:.3f}\n")
+            f.write(f"Size: {optimizer.best_result.csize} bytes\n")
+            f.write(f"Compression time: {optimizer.best_result.ctime:.3f}s\n")
+            f.write(f"Decompression time: {optimizer.best_result.dtime:.3f}s\n")
+            f.write(f"Tested {len(optimizer.cache)} unique parameter sets\n")
     else:
         print("\nNo valid results found!")
+        print(f"Results logged to: {args.log}")
 
     return 0
 
