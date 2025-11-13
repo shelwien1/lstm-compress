@@ -223,7 +223,7 @@ class ParamOptimizer:
         # Build command
         cmd = [self.coder_path, mode, input_file, output_file]
 
-        # Add parameters (lstm_input_size is always 128, not optimized)
+        # Add parameters by name (lstm_input_size is always 128, not optimized)
         params_with_fixed = params.copy()
         params_with_fixed['lstm_input_size'] = 128
 
@@ -231,7 +231,7 @@ class ParamOptimizer:
                     'lstm_num_layers', 'lstm_horizon', 'lstm_learning_rate',
                     'lstm_gradient_clip', 'update_limit']:
             if key in params_with_fixed:
-                cmd.append(str(params_with_fixed[key]))
+                cmd.append(f"{key}={params_with_fixed[key]}")
 
         # Create command line string for logging
         cmd_str = ' '.join(cmd)
