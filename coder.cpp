@@ -42,11 +42,21 @@ unsigned int bit_context_ = 1;
 
 int main( int argc, char** argv ) {
 
-  if( argc<3 ) return 1;
+  if( argc<4 ) return 1;
 
   uint f_DEC = (argv[1][0]=='d');
   FILE* f = fopen(argv[2],"rb"); if( f==0 ) return 2;
   FILE* g = fopen(argv[3],"wb"); if( g==0 ) return 3;
+
+  // Parse optional parameters with defaults
+  int ppmd_order = (argc > 4) ? atoi(argv[4]) : 12;
+  int ppmd_memory = (argc > 5) ? atoi(argv[5]) : 1000;
+  int lstm_input_size = (argc > 6) ? atoi(argv[6]) : 128;
+  int lstm_num_cells = (argc > 7) ? atoi(argv[7]) : 90;
+  int lstm_num_layers = (argc > 8) ? atoi(argv[8]) : 3;
+  int lstm_horizon = (argc > 9) ? atoi(argv[9]) : 10;
+  float lstm_learning_rate = (argc > 10) ? (float)atof(argv[10]) : 0.05f;
+  float lstm_gradient_clip = (argc > 11) ? (float)atof(argv[11]) : 2.0f;
 
   uint i,j,c,pc=10,code,low,total=0,freq[CNUM],f_len,f_pos;
   for( i=0; i<CNUM; i++ ) total+=(freq[i]=1);
@@ -71,14 +81,14 @@ int main( int argc, char** argv ) {
 
   for( i=0,total=0; i<CNUM; i++ ) total+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
-auto byte_model_ = new PPMD::PPMD(12, 1000, cmap);
+auto byte_model_ = new PPMD::PPMD(ppmd_order, ppmd_memory, cmap);
 
 byte_model_->Byte_Model::ByteUpdate();
 
   srand(0xDEADBEEF);
   //ByteModel* PM = new ByteModel( cmap, new Lstm(0, total, 90, 3, 10, 0.05, 2) );
   //ByteModel* PM = new ByteModel( cmap, new Lstm(total, total, 90, 3, 10, 0.05, 2) );
-  Model* PM = new Model( cmap, new Lstm(128, total, 90, 3, 10, 0.05, 2) );
+  Model* PM = new Model( cmap, new Lstm(lstm_input_size, total, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip) );
   //ByteModel* PM = new ByteModel( cmap, new Lstm(128, total, total, 3, 10, 0.05, 2) );
 //  ByteModel* PM = new ByteModel( cmap, new Lstm(128, total, 128, 3, 10, 0.05, 2) );
 //      vocab_size, new Lstm(vocab_size, vocab_size, 200, 1, 128, 0.03, 10));
