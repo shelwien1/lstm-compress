@@ -11,6 +11,9 @@ import sys
 import json
 import threading
 import hashlib
+import signal
+import atexit
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
@@ -154,6 +157,13 @@ class ParamOptimizer:
         self.worst_ctime: float = 60.0  # Initial estimate
         self.worst_dtime: float = 60.0
 
+        # Track running subprocesses for cleanup
+        self.running_processes = []
+        self.processes_lock = threading.Lock()
+
+        # Flag for shutdown
+        self.shutting_down = False
+
         # Metric parameters
         self.uspeed = 240 * 1000 / 8  # 30000 bytes/sec
         self.dspeed = 4 * 1000 * 1000 / 8  # 500000 bytes/sec
@@ -178,8 +188,57 @@ class ParamOptimizer:
             f.write(f"Metric: ctime + 5*csize/{self.uspeed} + {self.nusers}*(5*csize/{self.dspeed} + dtime)\n")
             f.write("=" * 80 + "\n\n")
 
+        # Register cleanup handler
+        atexit.register(self.cleanup)
+
+        # Setup signal handlers for graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, self._signal_handler)
+
         # Run baseline test with default parameters
         self.run_baseline()
+
+    def _signal_handler(self, signum, frame):
+        """Handle interrupt signals (Ctrl-C)"""
+        if not self.shutting_down:
+            print("\n\nReceived interrupt signal. Cleaning up...")
+            self.shutting_down = True
+            self.cleanup()
+            sys.exit(0)
+
+    def cleanup(self):
+        """Clean up running processes and temporary files"""
+        # Prevent multiple simultaneous cleanups
+        if hasattr(self, '_cleanup_done') and self._cleanup_done:
+            return
+        self._cleanup_done = True
+        self.shutting_down = True
+
+        # Kill all running subprocesses
+        with self.processes_lock:
+            if self.running_processes:
+                print(f"Terminating {len(self.running_processes)} running processes...")
+                for proc in self.running_processes:
+                    try:
+                        if proc.poll() is None:  # Process still running
+                            proc.terminate()
+                            # Give it a moment to terminate gracefully
+                            try:
+                                proc.wait(timeout=1)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()  # Force kill if it doesn't terminate
+                    except Exception:
+                        pass  # Process may have already terminated
+                self.running_processes.clear()
+
+        # Clean up temporary directory
+        if hasattr(self, 'temp_dir') and self.temp_dir.exists():
+            try:
+                print(f"Cleaning up temporary directory: {self.temp_dir}")
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp directory: {e}")
 
     @staticmethod
     def compute_file_hash(file_path: str) -> str:
@@ -252,37 +311,73 @@ class ParamOptimizer:
         # Create command line string for logging
         cmd_str = ' '.join(cmd)
 
+        # Check if shutting down
+        if self.shutting_down:
+            return False, 0.0, "Shutdown in progress", cmd_str
+
         # Run with timeout, redirect output, and suppress crash dialogs
+        proc = None
         try:
             start_time = time.time()
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                timeout=timeout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=SUBPROCESS_FLAGS  # Suppress crash dialogs on Windows
             )
+
+            # Track this process
+            with self.processes_lock:
+                self.running_processes.append(proc)
+
+            # Wait for completion with timeout
+            try:
+                returncode = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                return False, timeout, "Timeout", cmd_str
+            finally:
+                # Remove from tracking
+                with self.processes_lock:
+                    if proc in self.running_processes:
+                        self.running_processes.remove(proc)
+
             elapsed = time.time() - start_time
 
             # Check return code - treat crashes as failures
-            if result.returncode != 0:
+            if returncode != 0:
                 # Negative return codes typically indicate crashes/signals
-                if result.returncode < 0:
-                    return False, 0.0, f"Crashed (signal {-result.returncode})", cmd_str
+                if returncode < 0:
+                    return False, 0.0, f"Crashed (signal {-returncode})", cmd_str
                 else:
                     # Print exit code in hex and decimal
-                    return False, 0.0, f"Exit code 0x{result.returncode:X} ({result.returncode})", cmd_str
+                    return False, 0.0, f"Exit code 0x{returncode:X} ({returncode})", cmd_str
 
             return True, elapsed, None, cmd_str
-        except subprocess.TimeoutExpired:
-            return False, timeout, "Timeout", cmd_str
-        except subprocess.CalledProcessError as e:
-            return False, 0.0, f"Exit code 0x{e.returncode:X} ({e.returncode})", cmd_str
         except Exception as e:
+            # Make sure to clean up process on any exception
+            if proc is not None:
+                with self.processes_lock:
+                    if proc in self.running_processes:
+                        self.running_processes.remove(proc)
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
+                except Exception:
+                    pass
             return False, 0.0, str(e), cmd_str
 
     def test_params(self, params: Dict) -> TestResult:
         """Test a parameter set and return results"""
+        # Check if shutting down
+        if self.shutting_down:
+            result = TestResult(params=params.copy())
+            result.error = "Shutdown in progress"
+            result.valid = False
+            return result
+
         # Check cache first
         key = self.params_to_key(params)
         with self.cache_lock:
@@ -668,29 +763,33 @@ def main():
         skip_decompression=args.skip_decompress
     )
 
-    # Run optimization
-    if args.method == 'de':
-        if not HAS_SCIPY:
-            print("Error: scipy required for DE. Install with: pip install scipy")
-            return 1
-        optimizer.optimize_differential_evolution(max_iter=args.max_iter)
-    elif args.method == 'ga':
-        if not HAS_DEAP:
-            print("Error: DEAP required for GA. Install with: pip install deap")
-            return 1
-        optimizer.optimize_genetic_algorithm(
-            population_size=args.population,
-            generations=args.generations
-        )
-    elif args.method == 'hybrid':
-        if not HAS_SCIPY and not HAS_DEAP:
-            print("Error: scipy and/or DEAP required. Install with: "
-                  "pip install scipy deap")
-            return 1
-        optimizer.optimize_hybrid(
-            ga_generations=args.generations // 2,
-            de_maxiter=args.max_iter // 2
-        )
+    try:
+        # Run optimization
+        if args.method == 'de':
+            if not HAS_SCIPY:
+                print("Error: scipy required for DE. Install with: pip install scipy")
+                return 1
+            optimizer.optimize_differential_evolution(max_iter=args.max_iter)
+        elif args.method == 'ga':
+            if not HAS_DEAP:
+                print("Error: DEAP required for GA. Install with: pip install deap")
+                return 1
+            optimizer.optimize_genetic_algorithm(
+                population_size=args.population,
+                generations=args.generations
+            )
+        elif args.method == 'hybrid':
+            if not HAS_SCIPY and not HAS_DEAP:
+                print("Error: scipy and/or DEAP required. Install with: "
+                      "pip install scipy deap")
+                return 1
+            optimizer.optimize_hybrid(
+                ga_generations=args.generations // 2,
+                de_maxiter=args.max_iter // 2
+            )
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user.")
+        # cleanup will be called automatically via atexit
 
     # Print final results
     print("\n\n=== OPTIMIZATION COMPLETE ===")
