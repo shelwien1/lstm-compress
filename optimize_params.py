@@ -454,8 +454,13 @@ class ParamOptimizer:
                     pass
             return False, 0.0, str(e), cmd_str
 
-    def test_params(self, params: Dict) -> TestResult:
-        """Test a parameter set and return results"""
+    def test_params(self, params: Dict, is_retest: bool = False) -> TestResult:
+        """Test a parameter set and return results
+
+        Args:
+            params: Parameter dictionary to test
+            is_retest: If True, this is a retest due to suspiciously good results
+        """
         # Check if shutting down
         if self.shutting_down:
             result = TestResult(params=params.copy())
@@ -472,11 +477,12 @@ class ParamOptimizer:
                 normalized_params[k] = v
         params = normalized_params
 
-        # Check cache first
+        # Check cache first (but skip cache if this is a retest)
         key = self.params_to_key(params)
-        with self.cache_lock:
-            if key in self.cache:
-                return self.cache[key]
+        if not is_retest:
+            with self.cache_lock:
+                if key in self.cache:
+                    return self.cache[key]
 
         # Increment test count for new test
         with self.count_lock:
@@ -505,51 +511,80 @@ class ParamOptimizer:
                 result.ctime = ctime
                 result.csize = os.path.getsize(compressed_file)
 
-                # Update worst time
-                if ctime > self.worst_ctime:
-                    self.worst_ctime = ctime
-
-                # Test decompression
-                if self.skip_decompression:
-                    result.dtime = ctime  # Assume same time
-                    result.valid = True
+                # Check for zero compressed size (error)
+                if result.csize == 0:
+                    result.error = "Compressed file has zero size"
+                    result.valid = False
+                    # Skip to cleanup
                 else:
-                    timeout = self.worst_dtime * self.timeout_multiplier
-                    success, dtime, error, dcmd = self.run_coder(
-                        'd', str(compressed_file), str(decompressed_file),
-                        params, timeout
-                    )
-                    result.cmd_decompress = dcmd
+                    # Update worst time
+                    if ctime > self.worst_ctime:
+                        self.worst_ctime = ctime
 
-                    if not success:
-                        result.error = f"Decompression failed: {error}"
-                        result.valid = False
+                    # Test decompression
+                    if self.skip_decompression:
+                        result.dtime = ctime  # Assume same time
+                        result.valid = True
                     else:
-                        result.dtime = dtime
+                        timeout = self.worst_dtime * self.timeout_multiplier
+                        success, dtime, error, dcmd = self.run_coder(
+                            'd', str(compressed_file), str(decompressed_file),
+                            params, timeout
+                        )
+                        result.cmd_decompress = dcmd
 
-                        # Verify decompressed file matches original by comparing hashes
-                        decompressed_hash = self.compute_file_hash(str(decompressed_file))
-                        if decompressed_hash != self.input_file_hash:
-                            result.error = "Decompressed file does not match original (data corruption)"
+                        if not success:
+                            result.error = f"Decompression failed: {error}"
                             result.valid = False
                         else:
-                            result.valid = True
+                            result.dtime = dtime
 
-                            # Update worst time only if valid
-                            if dtime > self.worst_dtime:
-                                self.worst_dtime = dtime
+                            # Verify decompressed file matches original by comparing hashes
+                            decompressed_hash = self.compute_file_hash(str(decompressed_file))
+                            if decompressed_hash != self.input_file_hash:
+                                result.error = "Decompressed file does not match original (data corruption)"
+                                result.valid = False
+                            else:
+                                result.valid = True
 
-                # Calculate metric if valid
-                if result.valid:
-                    result.metric = self.calculate_metric(
-                        result.csize, result.ctime, result.dtime
-                    )
+                                # Update worst time only if valid
+                                if dtime > self.worst_dtime:
+                                    self.worst_dtime = dtime
+
+                    # Calculate metric if valid
+                    if result.valid:
+                        result.metric = self.calculate_metric(
+                            result.csize, result.ctime, result.dtime
+                        )
 
         finally:
             # Clean up temporary files
             for f in [compressed_file, decompressed_file]:
                 if f.exists():
                     f.unlink()
+
+        # Check for suspiciously good results and retest if needed
+        if result.valid and not is_retest and self.best_result and self.best_result.valid:
+            # Check if any metric is 2x or more better than best
+            suspiciously_good = False
+            reasons = []
+
+            if result.csize * 2 <= self.best_result.csize:
+                suspiciously_good = True
+                reasons.append(f"csize {result.csize} vs best {self.best_result.csize}")
+
+            if result.ctime * 2 <= self.best_result.ctime:
+                suspiciously_good = True
+                reasons.append(f"ctime {result.ctime:.2f}s vs best {self.best_result.ctime:.2f}s")
+
+            if result.dtime * 2 <= self.best_result.dtime:
+                suspiciously_good = True
+                reasons.append(f"dtime {result.dtime:.2f}s vs best {self.best_result.dtime:.2f}s")
+
+            if suspiciously_good:
+                print(f"\nSuspiciously good result detected ({', '.join(reasons)}), retesting...")
+                # Don't cache this result, retest instead
+                return self.test_params(params, is_retest=True)
 
         # Cache result
         with self.cache_lock:
