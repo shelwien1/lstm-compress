@@ -183,6 +183,7 @@ class ParamOptimizer:
         self.uspeed = 240 * 1000 / 8  # 30000 bytes/sec
         self.dspeed = 4 * 1000 * 1000 / 8  # 500000 bytes/sec
         self.nusers = 3
+        self.csize_multiplier = 16  # Weight for compressed size in metric
 
         # Temporary directory for test files (in current directory for cross-platform)
         self.temp_dir = Path("./lstm_optimize_temp")
@@ -200,7 +201,7 @@ class ParamOptimizer:
             f.write(f"Input file hash: {self.input_file_hash}\n")
             f.write(f"Threads: {self.num_threads}\n")
             f.write(f"Skip decompression: {self.skip_decompression}\n")
-            f.write(f"Metric: ctime + 5*csize/{self.uspeed} + {self.nusers}*(5*csize/{self.dspeed} + dtime)\n")
+            f.write(f"Metric: ctime + {self.csize_multiplier}*csize/{self.uspeed} + {self.nusers}*({self.csize_multiplier}*csize/{self.dspeed} + dtime)\n")
             f.write("=" * 80 + "\n\n")
 
         # Register cleanup handler
@@ -364,9 +365,9 @@ class ParamOptimizer:
 
     def calculate_metric(self, csize: int, ctime: float, dtime: float) -> float:
         """Calculate optimization metric (lower is better)"""
-        # Increase csize cost by 5x to prioritize smaller compressed sizes
-        metric = (ctime + 5 * csize / self.uspeed +
-                 self.nusers * (5 * csize / self.dspeed + dtime))
+        # Increase csize cost to prioritize smaller compressed sizes
+        metric = (ctime + self.csize_multiplier * csize / self.uspeed +
+                 self.nusers * (self.csize_multiplier * csize / self.dspeed + dtime))
         return metric
 
     def run_coder(self, mode: str, input_file: str, output_file: str,
