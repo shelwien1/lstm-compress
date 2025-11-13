@@ -418,9 +418,10 @@ class ParamOptimizer:
             try:
                 returncode = proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
+                elapsed = time.time() - start_time
                 proc.kill()
                 proc.wait()
-                return False, timeout, "Timeout", cmd_str
+                return False, timeout, f"Timeout (exceeded {timeout:.1f}s limit, ran for {elapsed:.1f}s)", cmd_str
             finally:
                 # Remove from tracking
                 with self.processes_lock:
