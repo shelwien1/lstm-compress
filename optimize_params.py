@@ -482,6 +482,8 @@ class ParamOptimizer:
             with self.best_lock:
                 if self.best_result is None or result.metric < self.best_result.metric:
                     self.best_result = result
+                    # Write best result to result.txt
+                    self.write_result_file()
 
         # Log to file
         self.log_result(result)
@@ -540,6 +542,31 @@ class ParamOptimizer:
                   f"metric={self.best_result.metric:.2f}")
 
         sys.stdout.flush()
+
+    def write_result_file(self):
+        """Write best result to result.txt file"""
+        if not self.best_result or not self.best_result.valid:
+            return
+
+        result_file = "result.txt"
+        try:
+            with open(result_file, 'w') as f:
+                # Write parameter string
+                param_str = " ".join(f"{v}" for k, v in sorted(self.best_result.params.items()))
+                f.write(f"Best parameters: {param_str}\n")
+
+                # Write stats
+                f.write(f"Compressed size: {self.best_result.csize} bytes\n")
+                f.write(f"Compression time: {self.best_result.ctime:.3f}s\n")
+                f.write(f"Decompression time: {self.best_result.dtime:.3f}s\n")
+                f.write(f"Metric: {self.best_result.metric:.3f}\n")
+
+                # Write individual parameter values on separate lines for clarity
+                f.write("\nParameter details:\n")
+                for k, v in sorted(self.best_result.params.items()):
+                    f.write(f"  {k} = {v}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write result.txt: {e}")
 
     def params_array_to_dict(self, arr: np.ndarray) -> Dict:
         """Convert parameter array to dict with proper types"""
@@ -816,6 +843,10 @@ def main():
               f"metric={optimizer.best_result.metric:.2f}")
         print(f"Tested {len(optimizer.cache)} unique parameter sets")
         print(f"Results logged to: {args.log}")
+
+        # Write best result to result.txt
+        optimizer.write_result_file()
+        print(f"Best result written to: result.txt")
 
         # Log final summary
         with open(args.log, 'a') as f:
