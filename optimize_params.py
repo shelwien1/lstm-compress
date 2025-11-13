@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import threading
+import filecmp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
@@ -321,11 +322,17 @@ class ParamOptimizer:
                         result.valid = False
                     else:
                         result.dtime = dtime
-                        result.valid = True
 
-                        # Update worst time
-                        if dtime > self.worst_dtime:
-                            self.worst_dtime = dtime
+                        # Verify decompressed file matches original
+                        if not filecmp.cmp(self.input_file, str(decompressed_file), shallow=False):
+                            result.error = "Decompressed file does not match original (data corruption)"
+                            result.valid = False
+                        else:
+                            result.valid = True
+
+                            # Update worst time only if valid
+                            if dtime > self.worst_dtime:
+                                self.worst_dtime = dtime
 
                 # Calculate metric if valid
                 if result.valid:
