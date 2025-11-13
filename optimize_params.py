@@ -758,11 +758,11 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
-        # Prepare initial population for warm start
-        init_population = None
+        # Note: We don't pass an initial population to DE because it requires
+        # at least 5 individuals. However, the best GA result is already cached,
+        # so DE will benefit from it during evaluation.
         if warm_start and self.best_result and self.best_result.valid:
-            print("Using warm start from best GA result")
-            init_population = [self.params_dict_to_array(self.best_result.params)]
+            print(f"Starting from best known result (metric={self.best_result.metric:.2f})")
 
         # Callback to print iteration progress and check early stopping
         iteration = [0]
@@ -785,10 +785,6 @@ class ParamOptimizer:
             'seed': 42,
             'callback': callback
         }
-
-        # Add init parameter if warm starting
-        if init_population:
-            de_kwargs['init'] = init_population
 
         result = differential_evolution(**de_kwargs)
 
