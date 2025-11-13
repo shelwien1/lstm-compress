@@ -1,23 +1,19 @@
 
 #include "mim-include/mimalloc-new-delete.h"
 
-#include <cstring>
+// C library headers
 #include <stdlib.h>
 #include <cstdio>
-#include <math.h>
 #include <cstdint>
-#include <vector>
-#include <valarray>
-#include <numeric>
-#include <memory>
-#include <fstream>
-#include <iostream>
-#include <algorithm>
-#include <string>
+#include <cstring>
+#include <math.h>
 
-typedef unsigned char  byte;
-typedef unsigned int uint;
-typedef unsigned long long qword;
+// C++ library headers
+#include <algorithm>
+#include <memory>
+#include <numeric>
+#include <valarray>
+#include <vector>
 
 #define INC_FLEN
 #include "common.inc"
@@ -58,7 +54,7 @@ int main( int argc, char** argv ) {
 
     fseek( f, 0, SEEK_SET );
 
-    rc.StartEncode(g); 
+    rc.StartEncode(g);
 
   } else {
     f_len = 0;
@@ -72,7 +68,7 @@ std::vector<bool> vocab_; vocab_.resize(256);
 for( i=0; i<CNUM; i++ ) vocab_[i] = (cmap[i]!=0);
 //byte_model_.emplace(12, 1000, bit_context_, vocab_);
 
-auto byte_model_ = new PPMD::PPMD(12, 1000, bit_context_, vocab_);
+auto byte_model_ = new PPMD::PPMD(12, 1000, vocab_);
 
 byte_model_->Byte_Model::ByteUpdate();
 
@@ -96,7 +92,7 @@ byte_model_->Byte_Model::ByteUpdate();
     }
 
     if( f_DEC==0 ) {
-      c = getc(f); 
+      c = getc(f);
       for( i=0,low=0; i<c; i++ ) low+=freq[i];
       rc.rc_Process(low,freq[c],total);
     } else {
@@ -107,8 +103,8 @@ byte_model_->Byte_Model::ByteUpdate();
 
     if( f_DEC==1 ) putc(c,g);
 
-bit_context_=c; 
-byte_model_->ByteUpdate();
+bit_context_=c;
+byte_model_->ByteUpdate(bit_context_);
 
 const std::valarray<float>& p = byte_model_->BytePredict();
 PM->lstm_->SetInput(p);
