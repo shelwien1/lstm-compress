@@ -40,9 +40,40 @@ char cmap[CNUM];
 //std::optional<PPMD::PPMD> byte_model_;
 unsigned int bit_context_ = 1;
 
+void print_usage(const char* program_name) {
+  printf(
+"LSTM Compressor - Neural network based file compression\n"
+"\n"
+"Usage: %s <mode> <input> <output> [options]\n"
+"\n"
+"Required arguments:\n"
+"  <mode>    'e' for encode/compress, 'd' for decode/decompress\n"
+"  <input>   Input file path\n"
+"  <output>  Output file path\n"
+"\n"
+"Optional parameters (in order):\n"
+"  [ppmd_order]          PPMD model order (default: 12)\n"
+"  [ppmd_memory]         PPMD memory in MB (default: 1000)\n"
+"  [lstm_input_size]     LSTM input layer size (default: 128)\n"
+"  [lstm_num_cells]      LSTM number of cells (default: 90)\n"
+"  [lstm_num_layers]     LSTM number of layers (default: 3)\n"
+"  [lstm_horizon]        LSTM horizon (default: 10)\n"
+"  [lstm_learning_rate]  LSTM learning rate (default: 0.05)\n"
+"  [lstm_gradient_clip]  LSTM gradient clip (default: 2.0)\n"
+"\n"
+"Examples:\n"
+"  %s e input.txt output.compressed\n"
+"  %s d output.compressed restored.txt\n"
+"  %s e input.txt output.compressed 10 800 100 80 3 10 0.05 2.0\n",
+  program_name, program_name, program_name, program_name);
+}
+
 int main( int argc, char** argv ) {
 
-  if( argc<4 ) return 1;
+  if( argc<4 || (argc>=2 && (strcmp(argv[1], "-h")==0 || strcmp(argv[1], "--help")==0)) ) {
+    print_usage(argv[0]);
+    return (argc>=2 && (strcmp(argv[1], "-h")==0 || strcmp(argv[1], "--help")==0)) ? 0 : 1;
+  }
 
   uint f_DEC = (argv[1][0]=='d');
   FILE* f = fopen(argv[2],"rb"); if( f==0 ) return 2;
