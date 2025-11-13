@@ -14,7 +14,7 @@ import hashlib
 import signal
 import atexit
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
 import numpy as np
@@ -64,8 +64,12 @@ except ImportError:
     print("Warning: DEAP not available for GA. Install with: pip install deap")
 
 
+# Parameters that use logarithmic scale for better sampling
+LOG_SCALE_PARAMS = {'update_limit'}
+
 # Parameter bounds (min, max)
 # lstm_input_size is not optimized - it depends on input file (fixed at 128)
+# Note: update_limit uses log10 scale internally for more efficient search
 PARAM_BOUNDS = {
     'ppmd_order': (2, 256),
     'lstm_num_cells': (10, 200),
@@ -73,7 +77,7 @@ PARAM_BOUNDS = {
     'lstm_horizon': (1, 99),
     'lstm_learning_rate': (0.001, 0.5),
     'lstm_gradient_clip': (0.5, 10.0),
-    'update_limit': (500, 10000),
+    'update_limit': (np.log10(500), np.log10(10000)),  # log10 scale
 }
 
 # Default values
@@ -97,6 +101,12 @@ PARAM_TYPES = {
     'lstm_learning_rate': float,
     'lstm_gradient_clip': float,
     'update_limit': int,
+}
+
+# Floating-point precision for each float parameter (decimal places)
+FLOAT_PRECISION = {
+    'lstm_learning_rate': 4,
+    'lstm_gradient_clip': 2,
 }
 
 
@@ -153,6 +163,11 @@ class ParamOptimizer:
         self.test_count = 0
         self.count_lock = threading.Lock()
 
+        # Early stopping tracking
+        self.no_improvement_count = 0
+        self.early_stop_threshold = 100  # Stop after 100 tests without improvement
+        self.improvement_epsilon = 1e-3  # Minimum improvement to count as progress
+
         # Track worst time for timeout calculation
         self.worst_ctime: float = 60.0  # Initial estimate
         self.worst_dtime: float = 60.0
@@ -168,6 +183,7 @@ class ParamOptimizer:
         self.uspeed = 240 * 1000 / 8  # 30000 bytes/sec
         self.dspeed = 4 * 1000 * 1000 / 8  # 500000 bytes/sec
         self.nusers = 3
+        self.csize_multiplier = 16  # Weight for compressed size in metric
 
         # Temporary directory for test files (in current directory for cross-platform)
         self.temp_dir = Path("./lstm_optimize_temp")
@@ -185,7 +201,7 @@ class ParamOptimizer:
             f.write(f"Input file hash: {self.input_file_hash}\n")
             f.write(f"Threads: {self.num_threads}\n")
             f.write(f"Skip decompression: {self.skip_decompression}\n")
-            f.write(f"Metric: ctime + 5*csize/{self.uspeed} + {self.nusers}*(5*csize/{self.dspeed} + dtime)\n")
+            f.write(f"Metric: ctime + {self.csize_multiplier}*csize/{self.uspeed} + {self.nusers}*({self.csize_multiplier}*csize/{self.dspeed} + dtime)\n")
             f.write("=" * 80 + "\n\n")
 
         # Register cleanup handler
@@ -198,6 +214,9 @@ class ParamOptimizer:
 
         # Run baseline test with default parameters
         self.run_baseline()
+
+        # Test previous best parameters from result.txt if it exists
+        self.test_previous_best()
 
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals (Ctrl-C)"""
@@ -271,25 +290,84 @@ class ParamOptimizer:
 
         print()
 
+    def test_previous_best(self):
+        """Test previous best parameters from result.txt if it exists"""
+        result_file = "result.txt"
+        if not os.path.exists(result_file):
+            return
+
+        print("\n=== Testing previous best parameters from result.txt ===\n")
+
+        try:
+            # Parse result.txt
+            params = {}
+            with open(result_file, 'r') as f:
+                lines = f.readlines()
+                # Find the "Parameter details:" section
+                in_details = False
+                for line in lines:
+                    if "Parameter details:" in line:
+                        in_details = True
+                        continue
+                    if in_details and '=' in line:
+                        # Parse lines like "  param_name = value"
+                        line = line.strip()
+                        if line:
+                            parts = line.split('=', 1)
+                            if len(parts) == 2:
+                                param_name = parts[0].strip()
+                                param_value = parts[1].strip()
+                                # Convert to appropriate type
+                                if param_name in PARAM_TYPES:
+                                    if PARAM_TYPES[param_name] == int:
+                                        params[param_name] = int(param_value)
+                                    else:
+                                        params[param_name] = float(param_value)
+
+            if not params:
+                print("Could not parse parameters from result.txt")
+                return
+
+            # Remove lstm_input_size if present (not optimized)
+            if 'lstm_input_size' in params:
+                del params['lstm_input_size']
+
+            # Test the parameters
+            result = self.test_params(params)
+
+            if result.valid:
+                print(f"\nPrevious best parameters tested: metric={result.metric:.2f}")
+            else:
+                print(f"\nWARNING: Previous best parameters failed: {result.error}")
+
+        except Exception as e:
+            print(f"Warning: Failed to test previous best parameters: {e}")
+
+        print()
+
     def params_to_key(self, params: Dict) -> str:
-        """Convert parameter dict to a hashable key"""
-        # Round floats for consistent hashing, ensure integers are integers
-        rounded = {}
+        """Convert parameter dict to a hashable key using MD5"""
+        # Round integers and floats to eliminate duplicate tests from float drift
+        normalized = {}
         for k, v in params.items():
             if k in PARAM_TYPES and PARAM_TYPES[k] == int:
                 # Force integer parameters to be integers (avoid 12.0 vs 12)
-                rounded[k] = int(round(v)) if isinstance(v, (int, float)) else v
+                normalized[k] = int(round(v)) if isinstance(v, (int, float)) else v
             elif isinstance(v, float):
-                rounded[k] = round(v, 6)
+                # Use per-parameter precision
+                precision = FLOAT_PRECISION.get(k, 4)
+                normalized[k] = round(float(v), precision)
             else:
-                rounded[k] = v
-        return json.dumps(rounded, sort_keys=True)
+                normalized[k] = v
+        # Use MD5 hash for faster comparison
+        json_str = json.dumps(normalized, sort_keys=True)
+        return hashlib.md5(json_str.encode()).hexdigest()
 
     def calculate_metric(self, csize: int, ctime: float, dtime: float) -> float:
         """Calculate optimization metric (lower is better)"""
-        # Increase csize cost by 5x to prioritize smaller compressed sizes
-        metric = (ctime + 5 * csize / self.uspeed +
-                 self.nusers * (5 * csize / self.dspeed + dtime))
+        # Increase csize cost to prioritize smaller compressed sizes
+        metric = (ctime + self.csize_multiplier * csize / self.uspeed +
+                 self.nusers * (self.csize_multiplier * csize / self.dspeed + dtime))
         return metric
 
     def run_coder(self, mode: str, input_file: str, output_file: str,
@@ -341,9 +419,10 @@ class ParamOptimizer:
             try:
                 returncode = proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
+                elapsed = time.time() - start_time
                 proc.kill()
                 proc.wait()
-                return False, timeout, "Timeout", cmd_str
+                return False, timeout, f"Timeout (exceeded {timeout:.1f}s limit, ran for {elapsed:.1f}s)", cmd_str
             finally:
                 # Remove from tracking
                 with self.processes_lock:
@@ -376,8 +455,13 @@ class ParamOptimizer:
                     pass
             return False, 0.0, str(e), cmd_str
 
-    def test_params(self, params: Dict) -> TestResult:
-        """Test a parameter set and return results"""
+    def test_params(self, params: Dict, is_retest: bool = False) -> TestResult:
+        """Test a parameter set and return results
+
+        Args:
+            params: Parameter dictionary to test
+            is_retest: If True, this is a retest due to suspiciously good results
+        """
         # Check if shutting down
         if self.shutting_down:
             result = TestResult(params=params.copy())
@@ -394,11 +478,12 @@ class ParamOptimizer:
                 normalized_params[k] = v
         params = normalized_params
 
-        # Check cache first
+        # Check cache first (but skip cache if this is a retest)
         key = self.params_to_key(params)
-        with self.cache_lock:
-            if key in self.cache:
-                return self.cache[key]
+        if not is_retest:
+            with self.cache_lock:
+                if key in self.cache:
+                    return self.cache[key]
 
         # Increment test count for new test
         with self.count_lock:
@@ -427,45 +512,51 @@ class ParamOptimizer:
                 result.ctime = ctime
                 result.csize = os.path.getsize(compressed_file)
 
-                # Update worst time
-                if ctime > self.worst_ctime:
-                    self.worst_ctime = ctime
-
-                # Test decompression
-                if self.skip_decompression:
-                    result.dtime = ctime  # Assume same time
-                    result.valid = True
+                # Check for zero compressed size (error)
+                if result.csize == 0:
+                    result.error = "Compressed file has zero size"
+                    result.valid = False
+                    # Skip to cleanup
                 else:
-                    timeout = self.worst_dtime * self.timeout_multiplier
-                    success, dtime, error, dcmd = self.run_coder(
-                        'd', str(compressed_file), str(decompressed_file),
-                        params, timeout
-                    )
-                    result.cmd_decompress = dcmd
+                    # Update worst time
+                    if ctime > self.worst_ctime:
+                        self.worst_ctime = ctime
 
-                    if not success:
-                        result.error = f"Decompression failed: {error}"
-                        result.valid = False
+                    # Test decompression
+                    if self.skip_decompression:
+                        result.dtime = ctime  # Assume same time
+                        result.valid = True
                     else:
-                        result.dtime = dtime
+                        timeout = self.worst_dtime * self.timeout_multiplier
+                        success, dtime, error, dcmd = self.run_coder(
+                            'd', str(compressed_file), str(decompressed_file),
+                            params, timeout
+                        )
+                        result.cmd_decompress = dcmd
 
-                        # Verify decompressed file matches original by comparing hashes
-                        decompressed_hash = self.compute_file_hash(str(decompressed_file))
-                        if decompressed_hash != self.input_file_hash:
-                            result.error = "Decompressed file does not match original (data corruption)"
+                        if not success:
+                            result.error = f"Decompression failed: {error}"
                             result.valid = False
                         else:
-                            result.valid = True
+                            result.dtime = dtime
 
-                            # Update worst time only if valid
-                            if dtime > self.worst_dtime:
-                                self.worst_dtime = dtime
+                            # Verify decompressed file matches original by comparing hashes
+                            decompressed_hash = self.compute_file_hash(str(decompressed_file))
+                            if decompressed_hash != self.input_file_hash:
+                                result.error = "Decompressed file does not match original (data corruption)"
+                                result.valid = False
+                            else:
+                                result.valid = True
 
-                # Calculate metric if valid
-                if result.valid:
-                    result.metric = self.calculate_metric(
-                        result.csize, result.ctime, result.dtime
-                    )
+                                # Update worst time only if valid
+                                if dtime > self.worst_dtime:
+                                    self.worst_dtime = dtime
+
+                    # Calculate metric if valid
+                    if result.valid:
+                        result.metric = self.calculate_metric(
+                            result.csize, result.ctime, result.dtime
+                        )
 
         finally:
             # Clean up temporary files
@@ -473,17 +564,50 @@ class ParamOptimizer:
                 if f.exists():
                     f.unlink()
 
+        # Check for suspiciously good results and retest if needed
+        if result.valid and not is_retest and self.best_result and self.best_result.valid:
+            # Check if any metric is 2x or more better than best
+            suspiciously_good = False
+            reasons = []
+
+            if result.csize * 2 <= self.best_result.csize:
+                suspiciously_good = True
+                reasons.append(f"csize {result.csize} vs best {self.best_result.csize}")
+
+            if result.ctime * 2 <= self.best_result.ctime:
+                suspiciously_good = True
+                reasons.append(f"ctime {result.ctime:.2f}s vs best {self.best_result.ctime:.2f}s")
+
+            if result.dtime * 2 <= self.best_result.dtime:
+                suspiciously_good = True
+                reasons.append(f"dtime {result.dtime:.2f}s vs best {self.best_result.dtime:.2f}s")
+
+            if suspiciously_good:
+                print(f"\nSuspiciously good result detected ({', '.join(reasons)}), retesting...")
+                # Don't cache this result, retest instead
+                return self.test_params(params, is_retest=True)
+
         # Cache result
         with self.cache_lock:
             self.cache[key] = result
 
-        # Update best result
+        # Update best result and early stopping counter
         if result.valid:
             with self.best_lock:
-                if self.best_result is None or result.metric < self.best_result.metric:
+                if self.best_result is None:
                     self.best_result = result
+                    self.no_improvement_count = 0
                     # Write best result to result.txt
                     self.write_result_file()
+                elif result.metric < self.best_result.metric - self.improvement_epsilon:
+                    # Significant improvement
+                    self.best_result = result
+                    self.no_improvement_count = 0
+                    # Write best result to result.txt
+                    self.write_result_file()
+                else:
+                    # No significant improvement
+                    self.no_improvement_count += 1
 
         # Log to file
         self.log_result(result)
@@ -577,20 +701,43 @@ class ParamOptimizer:
             # Clip to bounds
             min_val, max_val = PARAM_BOUNDS[name]
             value = np.clip(value, min_val, max_val)
-            # Convert to proper type
+            # Convert from log scale if needed
+            if name in LOG_SCALE_PARAMS:
+                value = 10 ** value
+            # Convert to proper type with precision
             if PARAM_TYPES[name] == int:
                 params[name] = int(round(value))
             else:
-                params[name] = float(value)
+                # Apply per-parameter precision
+                precision = FLOAT_PRECISION.get(name, 4)
+                params[name] = round(float(value), precision)
         return params
 
     def params_dict_to_array(self, params: Dict) -> np.ndarray:
         """Convert parameter dict to array"""
         param_names = sorted(PARAM_BOUNDS.keys())
-        return np.array([params[name] for name in param_names])
+        arr = []
+        for name in param_names:
+            value = params[name]
+            # Convert to log scale if needed
+            if name in LOG_SCALE_PARAMS:
+                value = np.log10(value)
+            arr.append(value)
+        return np.array(arr)
+
+    def should_early_stop(self) -> bool:
+        """Check if early stopping criteria is met"""
+        return self.no_improvement_count >= self.early_stop_threshold
 
     def objective_function(self, arr: np.ndarray) -> float:
         """Objective function for optimization (lower is better)"""
+        # Enforce integer rounding before evaluation to avoid redundant tests
+        arr = np.array(arr)
+        param_names = sorted(PARAM_BOUNDS.keys())
+        for i, name in enumerate(param_names):
+            if PARAM_TYPES[name] == int:
+                arr[i] = np.round(arr[i])
+
         params = self.params_array_to_dict(arr)
         result = self.test_params(params)
 
@@ -600,7 +747,7 @@ class ParamOptimizer:
             # Return large penalty for invalid results
             return 1e9
 
-    def optimize_differential_evolution(self, max_iter: int = 50):
+    def optimize_differential_evolution(self, max_iter: int = 50, warm_start: bool = False):
         """Optimize using differential evolution (gradient-free)"""
         if not HAS_SCIPY:
             print("scipy not available. Install with: pip install scipy")
@@ -612,28 +759,35 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
-        # Create integrality constraint (True for integer parameters)
-        integrality = [PARAM_TYPES[name] == int for name in param_names]
+        # Note: We don't pass an initial population to DE because it requires
+        # at least 5 individuals. However, the best GA result is already cached,
+        # so DE will benefit from it during evaluation.
+        if warm_start and self.best_result and self.best_result.valid:
+            print(f"Starting from best known result (metric={self.best_result.metric:.2f})")
 
-        # Callback to print iteration progress
+        # Callback to print iteration progress and check early stopping
         iteration = [0]
         def callback(xk, convergence):
             iteration[0] += 1
             print(f"\n--- DE Iteration {iteration[0]}/{max_iter} ---")
+            if self.should_early_stop():
+                print(f"Early stopping: no improvement in {self.early_stop_threshold} tests")
+                return True  # Stop optimization
             return False
 
-        # Run optimization with integrality constraints
-        result = differential_evolution(
-            self.objective_function,
-            bounds,
-            integrality=integrality,  # Enforce integer constraints
-            workers=self.num_threads,
-            maxiter=max_iter,
-            disp=False,
-            updating='deferred',  # Parallel evaluation
-            seed=42,
-            callback=callback
-        )
+        # Run optimization without integrality constraints (handled in objective_function)
+        de_kwargs = {
+            'func': self.objective_function,
+            'bounds': bounds,
+            'workers': self.num_threads,
+            'maxiter': max_iter,
+            'disp': False,
+            'updating': 'deferred',  # Parallel evaluation
+            'seed': 42,
+            'callback': callback
+        }
+
+        result = differential_evolution(**de_kwargs)
 
         print(f"\n\nDifferential Evolution complete!")
         print(f"Best metric: {result.fun:.2f}")
@@ -665,10 +819,11 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         for i, name in enumerate(param_names):
             min_val, max_val = PARAM_BOUNDS[name]
-            if PARAM_TYPES[name] == int:
-                toolbox.register(f"attr_{i}", random.randint, min_val, max_val)
-            else:
+            # Use uniform for log-scale params and floats, randint for regular integers
+            if name in LOG_SCALE_PARAMS or PARAM_TYPES[name] == float:
                 toolbox.register(f"attr_{i}", random.uniform, min_val, max_val)
+            else:
+                toolbox.register(f"attr_{i}", random.randint, int(min_val), int(max_val))
 
         # Individual and population
         attrs = [getattr(toolbox, f"attr_{i}") for i in range(len(param_names))]
@@ -707,10 +862,12 @@ class ParamOptimizer:
         toolbox.register("mutate", check_integers(tools.mutPolynomialBounded),
                         low=[PARAM_BOUNDS[n][0] for n in param_names],
                         up=[PARAM_BOUNDS[n][1] for n in param_names],
-                        eta=20.0, indpb=0.2)
+                        eta=10.0, indpb=0.4)  # More aggressive mutation for faster exploration
         toolbox.register("select", tools.selTournament, tournsize=3)
 
-        # Thread pool for parallel evaluation
+        # Use ThreadPoolExecutor for parallel evaluation
+        # Note: ProcessPoolExecutor could provide better parallelism but requires
+        # additional serialization handling for the evaluation function
         toolbox.register("map", ThreadPoolExecutor(max_workers=self.num_threads).map)
 
         # Create initial population
@@ -727,6 +884,14 @@ class ParamOptimizer:
         # Evolution loop
         for gen in range(1, generations + 1):
             print(f"\n--- GA Generation {gen}/{generations} ---")
+
+            # Check for early stopping
+            if self.should_early_stop():
+                print(f"Early stopping: no improvement in {self.early_stop_threshold} tests")
+                break
+
+            # Preserve elite individuals (top 2)
+            elite = tools.selBest(pop, k=2)
 
             # Select offspring
             offspring = toolbox.select(pop, len(pop))
@@ -750,13 +915,14 @@ class ParamOptimizer:
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness.values = fit
 
-            # Replace population
+            # Replace population with elitism (keep best 2)
+            offspring[-2:] = elite
             pop[:] = offspring
 
         print("\n\nGenetic Algorithm optimization complete!")
 
     def optimize_hybrid(self, ga_generations: int = 20, de_maxiter: int = 20):
-        """Hybrid optimization: GA first, then DE refinement"""
+        """Hybrid optimization: GA first, then DE refinement with warm start"""
         print("Starting hybrid optimization (GA + DE)...")
 
         if HAS_DEAP:
@@ -765,8 +931,8 @@ class ParamOptimizer:
                                            generations=ga_generations)
 
         if HAS_SCIPY and self.best_result:
-            print("\nPhase 2: Differential Evolution (refinement)")
-            self.optimize_differential_evolution(max_iter=de_maxiter)
+            print("\nPhase 2: Differential Evolution (refinement with warm start)")
+            self.optimize_differential_evolution(max_iter=de_maxiter, warm_start=True)
 
 
 def main():
