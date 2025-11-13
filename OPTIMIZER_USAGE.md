@@ -67,18 +67,19 @@ Basic usage:
 
 ### Parameters Optimized
 
-The script optimizes these parameters (ignoring `ppmd_memory`):
+The script optimizes these parameters (ignoring `ppmd_memory` and `lstm_input_size`):
 
 | Parameter | Range | Type | Default |
 |-----------|-------|------|---------|
 | ppmd_order | 2-256 | int | 12 |
-| lstm_input_size | 32-512 | int | 128 |
 | lstm_num_cells | 10-200 | int | 90 |
 | lstm_num_layers | 1-10 | int | 3 |
-| lstm_horizon | 1-50 | int | 10 |
+| lstm_horizon | 1-99 | int | 10 |
 | lstm_learning_rate | 0.001-0.5 | float | 0.05 |
 | lstm_gradient_clip | 0.5-10.0 | float | 2.0 |
 | update_limit | 500-10000 | int | 3000 |
+
+**Note:** `lstm_input_size` is fixed at 128 (depends on input file, not optimized)
 
 ### Optimization Metric
 
@@ -141,11 +142,11 @@ Example output:
 ```
 ================================================================================
 Current params:
-12 128 90 3 10 0.05 2.0 3000
+12 90 3 10 0.05 2.0 3000
 Stats: size=1234 ctime=5.23s dtime=2.15s metric=15.67
 
 Best params:
-10 96 75 2 8 0.03 1.5 2500
+10 75 2 8 0.03 1.5 2500
 Best stats: size=1198 ctime=4.85s dtime=1.98s metric=14.32
 ================================================================================
 ```
@@ -184,10 +185,13 @@ To modify parameter bounds, edit `PARAM_BOUNDS` in the script:
 ```python
 PARAM_BOUNDS = {
     'ppmd_order': (2, 256),
-    'lstm_input_size': (32, 512),
+    'lstm_num_cells': (10, 200),
+    'lstm_horizon': (1, 99),
     # ... etc
 }
 ```
+
+Note: `lstm_input_size` is fixed at 128 and not included in optimization.
 
 To change the metric weights, modify in `ParamOptimizer.__init__`:
 

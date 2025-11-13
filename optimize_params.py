@@ -34,12 +34,12 @@ except ImportError:
 
 
 # Parameter bounds (min, max)
+# lstm_input_size is not optimized - it depends on input file (fixed at 128)
 PARAM_BOUNDS = {
     'ppmd_order': (2, 256),
-    'lstm_input_size': (32, 512),
     'lstm_num_cells': (10, 200),
     'lstm_num_layers': (1, 10),
-    'lstm_horizon': (1, 50),
+    'lstm_horizon': (1, 99),
     'lstm_learning_rate': (0.001, 0.5),
     'lstm_gradient_clip': (0.5, 10.0),
     'update_limit': (500, 10000),
@@ -60,7 +60,6 @@ PARAM_DEFAULTS = {
 # Parameter types (int or float)
 PARAM_TYPES = {
     'ppmd_order': int,
-    'lstm_input_size': int,
     'lstm_num_cells': int,
     'lstm_num_layers': int,
     'lstm_horizon': int,
@@ -138,12 +137,15 @@ class ParamOptimizer:
         # Build command
         cmd = [self.coder_path, mode, input_file, output_file]
 
-        # Add parameters
+        # Add parameters (lstm_input_size is always 128, not optimized)
+        params_with_fixed = params.copy()
+        params_with_fixed['lstm_input_size'] = 128
+
         for key in ['ppmd_order', 'lstm_input_size', 'lstm_num_cells',
                     'lstm_num_layers', 'lstm_horizon', 'lstm_learning_rate',
                     'lstm_gradient_clip', 'update_limit']:
-            if key in params:
-                cmd.append(str(params[key]))
+            if key in params_with_fixed:
+                cmd.append(str(params_with_fixed[key]))
 
         # Run with timeout, redirect output
         try:
