@@ -171,6 +171,30 @@ class ParamOptimizer:
             f.write(f"Metric: ctime + csize/{self.uspeed} + {self.nusers}*(csize/{self.dspeed} + dtime)\n")
             f.write("=" * 80 + "\n\n")
 
+        # Run baseline test with default parameters
+        self.run_baseline()
+
+    def run_baseline(self):
+        """Run baseline test with default parameters to establish known good result"""
+        print("\n=== Running baseline test with default parameters ===\n")
+
+        # Use default parameters
+        baseline_params = PARAM_DEFAULTS.copy()
+        # Remove lstm_input_size as it's not optimized
+        if 'lstm_input_size' in baseline_params:
+            del baseline_params['lstm_input_size']
+
+        # Run the test
+        result = self.test_params(baseline_params)
+
+        if result.valid:
+            print(f"\nBaseline established: metric={result.metric:.2f}")
+        else:
+            print(f"\nWARNING: Baseline test failed: {result.error}")
+            print("Continuing with optimization anyway...")
+
+        print()
+
     def params_to_key(self, params: Dict) -> str:
         """Convert parameter dict to a hashable key"""
         # Round floats for consistent hashing

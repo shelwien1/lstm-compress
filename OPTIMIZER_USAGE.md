@@ -129,6 +129,7 @@ This metric balances:
 
 ### Features
 
+- **Baseline test**: Runs default parameters at startup to establish a known good baseline
 - **Caching**: All parameter sets are cached to avoid retesting
 - **Timeout protection**: Kills runs that take >200% of worst known time
 - **Crash handling**: Crashes are detected and logged without showing error dialogs (Windows)
@@ -151,10 +152,14 @@ After each test, the script prints:
 
 Example console output:
 ```
---- GA Generation 1/50 ---
+=== Running baseline test with default parameters ===
 
-Test 1: 12 90 3 10 0.05 2.0 3000 | size=1234 ctime=5.23s dtime=2.15s metric=15.67
-Best:   12 90 3 10 0.05 2.0 3000 | size=1234 ctime=5.23s dtime=2.15s metric=15.67
+Test 1: 12 90 3 10 0.05 2.0 3000 | size=1250 ctime=5.45s dtime=2.20s metric=16.10
+Best:   12 90 3 10 0.05 2.0 3000 | size=1250 ctime=5.45s dtime=2.20s metric=16.10
+
+Baseline established: metric=16.10
+
+--- GA Generation 1/50 ---
 
 Test 2: 10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.85s dtime=1.98s metric=14.32
 Best:   10 75 2 8 0.03 1.5 2500 | size=1198 ctime=4.85s dtime=1.98s metric=14.32
