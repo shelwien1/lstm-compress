@@ -42,28 +42,30 @@ The script automatically looks for `./coder` binary and will exit if not found.
 
 1. **Quick test with hybrid optimization (recommended):**
 ```bash
-./optimize_params.py build.sh --threads 7 --method hybrid
+./optimize_params.py input_file.txt --threads 7 --method hybrid
 ```
 
 2. **Genetic algorithm only:**
 ```bash
-./optimize_params.py build.sh --method ga --generations 100 --population 50
+./optimize_params.py input_file.txt --method ga --generations 100 --population 50
 ```
 
 3. **Differential evolution only:**
 ```bash
-./optimize_params.py build.sh --method de --max-iter 100
+./optimize_params.py input_file.txt --method de --max-iter 100
 ```
 
 4. **Skip decompression for faster testing:**
 ```bash
-./optimize_params.py build.sh --skip-decompress --threads 14
+./optimize_params.py input_file.txt --skip-decompress --threads 14
 ```
 
-5. **Custom input file with custom log:**
+5. **Custom log file:**
 ```bash
-./optimize_params.py /path/to/large/file.txt --log my_results.log --threads 7
+./optimize_params.py input_file.txt --log my_results.log --threads 7
 ```
+
+Replace `input_file.txt` with the actual file you want to optimize compression for.
 
 ## How it Works
 
@@ -168,7 +170,7 @@ Example log file content:
 ```
 LSTM Compressor Parameter Optimization Log
 ================================================================================
-Input file: build.sh
+Input file: input_file.txt
 Threads: 7
 Skip decompression: False
 Metric: ctime + csize/30000.0 + 3*(csize/500000.0 + dtime)
