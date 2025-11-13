@@ -51,21 +51,24 @@ void print_usage(const char* program_name) {
 "  <input>   Input file path\n"
 "  <output>  Output file path\n"
 "\n"
-"Optional parameters (in order):\n"
-"  [ppmd_order]          PPMD model order (default: 12)\n"
-"  [ppmd_memory]         PPMD memory in MB (default: 1000)\n"
-"  [lstm_input_size]     LSTM input layer size (default: 128)\n"
-"  [lstm_num_cells]      LSTM number of cells (default: 90)\n"
-"  [lstm_num_layers]     LSTM number of layers (default: 3)\n"
-"  [lstm_horizon]        LSTM horizon (default: 10)\n"
-"  [lstm_learning_rate]  LSTM learning rate (default: 0.05)\n"
-"  [lstm_gradient_clip]  LSTM gradient clip (default: 2.0)\n"
+"Optional parameters:\n"
+"  Can be specified by name (name=value) or positionally (in order shown):\n"
+"\n"
+"  ppmd_order=<n>           PPMD model order (default: 12)\n"
+"  ppmd_memory=<n>          PPMD memory in MB (default: 1000)\n"
+"  lstm_input_size=<n>      LSTM input layer size (default: 128)\n"
+"  lstm_num_cells=<n>       LSTM number of cells (default: 90)\n"
+"  lstm_num_layers=<n>      LSTM number of layers (default: 3)\n"
+"  lstm_horizon=<n>         LSTM horizon (default: 10)\n"
+"  lstm_learning_rate=<f>   LSTM learning rate (default: 0.05)\n"
+"  lstm_gradient_clip=<f>   LSTM gradient clip (default: 2.0)\n"
 "\n"
 "Examples:\n"
 "  %s e input.txt output.compressed\n"
 "  %s d output.compressed restored.txt\n"
+"  %s e input.txt output.compressed ppmd_order=9 lstm_num_layers=1\n"
 "  %s e input.txt output.compressed 10 800 100 80 3 10 0.05 2.0\n",
-  program_name, program_name, program_name, program_name);
+  program_name, program_name, program_name, program_name, program_name);
 }
 
 int main( int argc, char** argv ) {
@@ -79,15 +82,67 @@ int main( int argc, char** argv ) {
   FILE* f = fopen(argv[2],"rb"); if( f==0 ) return 2;
   FILE* g = fopen(argv[3],"wb"); if( g==0 ) return 3;
 
-  // Parse optional parameters with defaults
-  int ppmd_order = (argc > 4) ? atoi(argv[4]) : 12;
-  int ppmd_memory = (argc > 5) ? atoi(argv[5]) : 1000;
-  int lstm_input_size = (argc > 6) ? atoi(argv[6]) : 128;
-  int lstm_num_cells = (argc > 7) ? atoi(argv[7]) : 90;
-  int lstm_num_layers = (argc > 8) ? atoi(argv[8]) : 3;
-  int lstm_horizon = (argc > 9) ? atoi(argv[9]) : 10;
-  float lstm_learning_rate = (argc > 10) ? (float)atof(argv[10]) : 0.05f;
-  float lstm_gradient_clip = (argc > 11) ? (float)atof(argv[11]) : 2.0f;
+  // Initialize parameters with defaults
+  int ppmd_order = 12;
+  int ppmd_memory = 1000;
+  int lstm_input_size = 128;
+  int lstm_num_cells = 90;
+  int lstm_num_layers = 3;
+  int lstm_horizon = 10;
+  float lstm_learning_rate = 0.05f;
+  float lstm_gradient_clip = 2.0f;
+
+  // Parse optional parameters
+  int positional_index = 4;
+  for (int i = 4; i < argc; i++) {
+    char* arg = argv[i];
+    char* equals = strchr(arg, '=');
+
+    if (equals != NULL) {
+      // Named parameter: parse key=value
+      *equals = '\0';  // Split string at '='
+      char* key = arg;
+      char* value = equals + 1;
+
+      if (strcmp(key, "ppmd_order") == 0) {
+        ppmd_order = atoi(value);
+      } else if (strcmp(key, "ppmd_memory") == 0) {
+        ppmd_memory = atoi(value);
+      } else if (strcmp(key, "lstm_input_size") == 0) {
+        lstm_input_size = atoi(value);
+      } else if (strcmp(key, "lstm_num_cells") == 0) {
+        lstm_num_cells = atoi(value);
+      } else if (strcmp(key, "lstm_num_layers") == 0) {
+        lstm_num_layers = atoi(value);
+      } else if (strcmp(key, "lstm_horizon") == 0) {
+        lstm_horizon = atoi(value);
+      } else if (strcmp(key, "lstm_learning_rate") == 0) {
+        lstm_learning_rate = (float)atof(value);
+      } else if (strcmp(key, "lstm_gradient_clip") == 0) {
+        lstm_gradient_clip = (float)atof(value);
+      } else {
+        fprintf(stderr, "Unknown parameter: %s\n", key);
+        print_usage(argv[0]);
+        return 1;
+      }
+
+      *equals = '=';  // Restore original string
+    } else {
+      // Positional parameter
+      int pos = positional_index - 4;
+      switch (pos) {
+        case 0: ppmd_order = atoi(arg); break;
+        case 1: ppmd_memory = atoi(arg); break;
+        case 2: lstm_input_size = atoi(arg); break;
+        case 3: lstm_num_cells = atoi(arg); break;
+        case 4: lstm_num_layers = atoi(arg); break;
+        case 5: lstm_horizon = atoi(arg); break;
+        case 6: lstm_learning_rate = (float)atof(arg); break;
+        case 7: lstm_gradient_clip = (float)atof(arg); break;
+      }
+      positional_index++;
+    }
+  }
 
   uint i,j,c,pc=10,code,low,total=0,freq[CNUM],f_len,f_pos;
   for( i=0; i<CNUM; i++ ) total+=(freq[i]=1);
