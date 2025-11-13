@@ -26,9 +26,13 @@ if !JOBS! GEQ %MAX_JOBS% (
     goto waitloop
 )
 
-REM Create lock file and start compression job
+REM Create lock file FIRST, then start compression job
+echo %ORDER% > temp_%ORDER%.lock
 echo Starting order %ORDER%...
-start /min cmd /c "echo %ORDER% > temp_%ORDER%.lock & coder e %INPUT% temp_%ORDER%.compressed %ORDER% & del temp_%ORDER%.lock"
+start /min cmd /c "coder e %INPUT% temp_%ORDER%.compressed %ORDER% & del temp_%ORDER%.lock"
+
+REM Small delay to ensure lock file is written
+timeout /t 0 /nobreak >nul
 
 set /a ORDER+=1
 goto startloop
@@ -37,8 +41,11 @@ goto startloop
 REM Wait for all jobs to complete
 echo Waiting for all jobs to complete...
 :finalwait
-if exist temp_*.lock (
-    timeout /t 1 /nobreak >nul
+set /a REMAINING=0
+for %%f in (temp_*.lock) do set /a REMAINING+=1
+if !REMAINING! GTR 0 (
+    echo !REMAINING! jobs remaining...
+    timeout /t 2 /nobreak >nul
     goto finalwait
 )
 
