@@ -40,9 +40,34 @@ char cmap[CNUM];
 //std::optional<PPMD::PPMD> byte_model_;
 unsigned int bit_context_ = 1;
 
+void print_usage(const char* program_name) {
+  fprintf(stderr, "LSTM Compressor - Neural network based file compression\n\n");
+  fprintf(stderr, "Usage: %s <mode> <input> <output> [options]\n\n", program_name);
+  fprintf(stderr, "Required arguments:\n");
+  fprintf(stderr, "  <mode>    'e' for encode/compress, 'd' for decode/decompress\n");
+  fprintf(stderr, "  <input>   Input file path\n");
+  fprintf(stderr, "  <output>  Output file path\n\n");
+  fprintf(stderr, "Optional parameters (in order):\n");
+  fprintf(stderr, "  [ppmd_order]          PPMD model order (default: 12)\n");
+  fprintf(stderr, "  [ppmd_memory]         PPMD memory in MB (default: 1000)\n");
+  fprintf(stderr, "  [lstm_input_size]     LSTM input layer size (default: 128)\n");
+  fprintf(stderr, "  [lstm_num_cells]      LSTM number of cells (default: 90)\n");
+  fprintf(stderr, "  [lstm_num_layers]     LSTM number of layers (default: 3)\n");
+  fprintf(stderr, "  [lstm_horizon]        LSTM horizon (default: 10)\n");
+  fprintf(stderr, "  [lstm_learning_rate]  LSTM learning rate (default: 0.05)\n");
+  fprintf(stderr, "  [lstm_gradient_clip]  LSTM gradient clip (default: 2.0)\n\n");
+  fprintf(stderr, "Examples:\n");
+  fprintf(stderr, "  %s e input.txt output.compressed\n", program_name);
+  fprintf(stderr, "  %s d output.compressed restored.txt\n", program_name);
+  fprintf(stderr, "  %s e input.txt output.compressed 10 800 100 80 3 10 0.05 2.0\n", program_name);
+}
+
 int main( int argc, char** argv ) {
 
-  if( argc<4 ) return 1;
+  if( argc<4 || (argc>=2 && (strcmp(argv[1], "-h")==0 || strcmp(argv[1], "--help")==0)) ) {
+    print_usage(argv[0]);
+    return (argc>=2 && (strcmp(argv[1], "-h")==0 || strcmp(argv[1], "--help")==0)) ? 0 : 1;
+  }
 
   uint f_DEC = (argv[1][0]=='d');
   FILE* f = fopen(argv[2],"rb"); if( f==0 ) return 2;
