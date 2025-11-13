@@ -151,6 +151,10 @@ int main( int argc, char** argv ) {
     }
   }
 
+  // Print parsed parameters
+  printf("Parameters: ppmd_order=%d ppmd_memory=%d lstm_input_size=%d lstm_num_cells=%d lstm_num_layers=%d lstm_horizon=%d lstm_learning_rate=%.3f lstm_gradient_clip=%.3f\n",
+         ppmd_order, ppmd_memory, lstm_input_size, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip);
+
   uint i,j,c,pc=10,code,low,total=0,freq[CNUM],f_len,f_pos;
   for( i=0; i<CNUM; i++ ) total+=(freq[i]=1);
 
