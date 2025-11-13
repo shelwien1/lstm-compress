@@ -1,13 +1,15 @@
 
 #include "mim-include/mimalloc-new-delete.h"
 
+#include <cstring>
+#include <stdlib.h>
+#include <cstdio>
 #include <math.h>
 #include <cstdint>
 #include <vector>
 #include <valarray>
 #include <numeric>
 #include <memory>
-#include <stdlib.h>
 #include <fstream>
 #include <iostream>
 #include <algorithm>

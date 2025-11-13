@@ -478,8 +478,8 @@ class Byte_Model : public BaseModel {
 // Model struct
 // ============================================================================
 
-#include "ppmd.h"
 #include "ppmd.hpp"
+#include "ppmd.h"
 
 struct Model {
   int byte_map_[256];
