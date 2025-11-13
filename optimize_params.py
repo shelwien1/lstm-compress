@@ -214,6 +214,9 @@ class ParamOptimizer:
         # Run baseline test with default parameters
         self.run_baseline()
 
+        # Test previous best parameters from result.txt if it exists
+        self.test_previous_best()
+
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals (Ctrl-C)"""
         if not self.shutting_down:
@@ -283,6 +286,61 @@ class ParamOptimizer:
         else:
             print(f"\nWARNING: Baseline test failed: {result.error}")
             print("Continuing with optimization anyway...")
+
+        print()
+
+    def test_previous_best(self):
+        """Test previous best parameters from result.txt if it exists"""
+        result_file = "result.txt"
+        if not os.path.exists(result_file):
+            return
+
+        print("\n=== Testing previous best parameters from result.txt ===\n")
+
+        try:
+            # Parse result.txt
+            params = {}
+            with open(result_file, 'r') as f:
+                lines = f.readlines()
+                # Find the "Parameter details:" section
+                in_details = False
+                for line in lines:
+                    if "Parameter details:" in line:
+                        in_details = True
+                        continue
+                    if in_details and '=' in line:
+                        # Parse lines like "  param_name = value"
+                        line = line.strip()
+                        if line:
+                            parts = line.split('=', 1)
+                            if len(parts) == 2:
+                                param_name = parts[0].strip()
+                                param_value = parts[1].strip()
+                                # Convert to appropriate type
+                                if param_name in PARAM_TYPES:
+                                    if PARAM_TYPES[param_name] == int:
+                                        params[param_name] = int(param_value)
+                                    else:
+                                        params[param_name] = float(param_value)
+
+            if not params:
+                print("Could not parse parameters from result.txt")
+                return
+
+            # Remove lstm_input_size if present (not optimized)
+            if 'lstm_input_size' in params:
+                del params['lstm_input_size']
+
+            # Test the parameters
+            result = self.test_params(params)
+
+            if result.valid:
+                print(f"\nPrevious best parameters tested: metric={result.metric:.2f}")
+            else:
+                print(f"\nWARNING: Previous best parameters failed: {result.error}")
+
+        except Exception as e:
+            print(f"Warning: Failed to test previous best parameters: {e}")
 
         print()
 
