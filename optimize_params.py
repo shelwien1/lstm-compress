@@ -451,6 +451,9 @@ class ParamOptimizer:
         param_names = sorted(PARAM_BOUNDS.keys())
         bounds = [PARAM_BOUNDS[name] for name in param_names]
 
+        # Create integrality constraint (True for integer parameters)
+        integrality = [PARAM_TYPES[name] == int for name in param_names]
+
         # Callback to print iteration progress
         iteration = [0]
         def callback(xk, convergence):
@@ -458,10 +461,11 @@ class ParamOptimizer:
             print(f"\n--- DE Iteration {iteration[0]}/{max_iter} ---")
             return False
 
-        # Run optimization
+        # Run optimization with integrality constraints
         result = differential_evolution(
             self.objective_function,
             bounds,
+            integrality=integrality,  # Enforce integer constraints
             workers=self.num_threads,
             maxiter=max_iter,
             disp=False,
@@ -515,9 +519,31 @@ class ParamOptimizer:
         def eval_individual(individual):
             return (self.objective_function(np.array(individual)),)
 
+        # Helper function to enforce integer constraints
+        def enforce_integer_constraints(individual):
+            """Round integer parameters to ensure validity"""
+            for i, name in enumerate(param_names):
+                if PARAM_TYPES[name] == int:
+                    individual[i] = round(individual[i])
+                    # Clip to bounds
+                    min_val, max_val = PARAM_BOUNDS[name]
+                    individual[i] = max(min_val, min(max_val, individual[i]))
+            return individual,
+
+        # Decorator for genetic operators to enforce integer constraints
+        def check_integers(func):
+            def wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                # Apply integer constraints to all modified individuals
+                if hasattr(args[0], '__iter__'):
+                    for ind in args[:2] if len(args) >= 2 else [args[0]]:
+                        enforce_integer_constraints(ind)
+                return result
+            return wrapper
+
         toolbox.register("evaluate", eval_individual)
-        toolbox.register("mate", tools.cxTwoPoint)
-        toolbox.register("mutate", tools.mutPolynomialBounded,
+        toolbox.register("mate", check_integers(tools.cxTwoPoint))
+        toolbox.register("mutate", check_integers(tools.mutPolynomialBounded),
                         low=[PARAM_BOUNDS[n][0] for n in param_names],
                         up=[PARAM_BOUNDS[n][1] for n in param_names],
                         eta=20.0, indpb=0.2)
