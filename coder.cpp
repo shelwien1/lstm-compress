@@ -21,6 +21,14 @@
 #include "sh_v2f.inc"
 
 #include "lstm-model.inc"
+#include "base-model.hpp"
+#include "sigmoid.hpp"
+#include "neuron-layer.hpp"
+#include "lstm-layer.hpp"
+#include "lstm.hpp"
+#include "byte-model.hpp"
+#include "ppmd-model.hpp"
+#include "model.hpp"
 
 //#include <optional>
 
