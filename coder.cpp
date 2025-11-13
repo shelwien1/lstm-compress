@@ -62,12 +62,13 @@ void print_usage(const char* program_name) {
 "  lstm_horizon=<n>         LSTM horizon (default: 10)\n"
 "  lstm_learning_rate=<f>   LSTM learning rate (default: 0.05)\n"
 "  lstm_gradient_clip=<f>   LSTM gradient clip (default: 2.0)\n"
+"  update_limit=<n>         Update limit for Adam optimizer (default: 3000)\n"
 "\n"
 "Examples:\n"
 "  %s e input.txt output.compressed\n"
 "  %s d output.compressed restored.txt\n"
 "  %s e input.txt output.compressed ppmd_order=9 lstm_num_layers=1\n"
-"  %s e input.txt output.compressed 10 800 100 80 3 10 0.05 2.0\n",
+"  %s e input.txt output.compressed 10 800 100 80 3 10 0.05 2.0 3000\n",
   program_name, program_name, program_name, program_name, program_name);
 }
 
@@ -91,6 +92,7 @@ int main( int argc, char** argv ) {
   int lstm_horizon = 10;
   float lstm_learning_rate = 0.05f;
   float lstm_gradient_clip = 2.0f;
+  int update_limit = 3000;
 
   // Parse optional parameters
   int positional_index = 0;
@@ -128,6 +130,9 @@ int main( int argc, char** argv ) {
       } else if (strcmp(key, "lstm_gradient_clip") == 0) {
         lstm_gradient_clip = (float)atof(value);
         positional_index = 8;
+      } else if (strcmp(key, "update_limit") == 0) {
+        update_limit = atoi(value);
+        positional_index = 9;
       } else {
         fprintf(stderr, "Unknown parameter: %s\n", key);
         print_usage(argv[0]);
@@ -146,14 +151,18 @@ int main( int argc, char** argv ) {
         case 5: lstm_horizon = atoi(arg); break;
         case 6: lstm_learning_rate = (float)atof(arg); break;
         case 7: lstm_gradient_clip = (float)atof(arg); break;
+        case 8: update_limit = atoi(arg); break;
       }
       positional_index++;
     }
   }
 
   // Print parsed parameters
-  printf("Parameters: ppmd_order=%d ppmd_memory=%d lstm_input_size=%d lstm_num_cells=%d lstm_num_layers=%d lstm_horizon=%d lstm_learning_rate=%.3f lstm_gradient_clip=%.3f\n",
-         ppmd_order, ppmd_memory, lstm_input_size, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip);
+  printf("Parameters: ppmd_order=%d ppmd_memory=%d lstm_input_size=%d lstm_num_cells=%d lstm_num_layers=%d lstm_horizon=%d lstm_learning_rate=%.3f lstm_gradient_clip=%.3f update_limit=%d\n",
+         ppmd_order, ppmd_memory, lstm_input_size, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip, update_limit);
+
+  // Set global UPDATE_LIMIT from command line parameter
+  UPDATE_LIMIT = update_limit;
 
   uint i,j,c,pc=10,code,low,total=0,freq[CNUM],f_len,f_pos;
   for( i=0; i<CNUM; i++ ) total+=(freq[i]=1);

@@ -4,7 +4,7 @@
 
 using namespace std;
 
-#define UPDATE_LIMIT 3000
+unsigned int UPDATE_LIMIT = 3000;
 #define FAST_TANH tanh
 #define FAST_TANH_VEC tanh
 
