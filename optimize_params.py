@@ -10,7 +10,7 @@ import os
 import sys
 import json
 import threading
-import filecmp
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
@@ -163,12 +163,16 @@ class ParamOptimizer:
         self.temp_dir = Path("./lstm_optimize_temp")
         self.temp_dir.mkdir(exist_ok=True)
 
+        # Compute input file hash once for verification
+        self.input_file_hash = self.compute_file_hash(self.input_file)
+
         # Initialize log file
         self.log_lock = threading.Lock()
         with open(self.log_file, 'w') as f:
             f.write("LSTM Compressor Parameter Optimization Log\n")
             f.write("=" * 80 + "\n")
             f.write(f"Input file: {self.input_file}\n")
+            f.write(f"Input file hash: {self.input_file_hash}\n")
             f.write(f"Threads: {self.num_threads}\n")
             f.write(f"Skip decompression: {self.skip_decompression}\n")
             f.write(f"Metric: ctime + csize/{self.uspeed} + {self.nusers}*(csize/{self.dspeed} + dtime)\n")
@@ -176,6 +180,16 @@ class ParamOptimizer:
 
         # Run baseline test with default parameters
         self.run_baseline()
+
+    @staticmethod
+    def compute_file_hash(file_path: str) -> str:
+        """Compute SHA256 hash of a file"""
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            # Read in chunks to handle large files
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
 
     def run_baseline(self):
         """Run baseline test with default parameters to establish known good result"""
@@ -323,8 +337,9 @@ class ParamOptimizer:
                     else:
                         result.dtime = dtime
 
-                        # Verify decompressed file matches original
-                        if not filecmp.cmp(self.input_file, str(decompressed_file), shallow=False):
+                        # Verify decompressed file matches original by comparing hashes
+                        decompressed_hash = self.compute_file_hash(str(decompressed_file))
+                        if decompressed_hash != self.input_file_hash:
                             result.error = "Decompressed file does not match original (data corruption)"
                             result.valid = False
                         else:
