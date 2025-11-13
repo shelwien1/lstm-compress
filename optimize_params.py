@@ -273,10 +273,13 @@ class ParamOptimizer:
 
     def params_to_key(self, params: Dict) -> str:
         """Convert parameter dict to a hashable key"""
-        # Round floats for consistent hashing
+        # Round floats for consistent hashing, ensure integers are integers
         rounded = {}
         for k, v in params.items():
-            if isinstance(v, float):
+            if k in PARAM_TYPES and PARAM_TYPES[k] == int:
+                # Force integer parameters to be integers (avoid 12.0 vs 12)
+                rounded[k] = int(round(v)) if isinstance(v, (int, float)) else v
+            elif isinstance(v, float):
                 rounded[k] = round(v, 6)
             else:
                 rounded[k] = v
@@ -306,7 +309,11 @@ class ParamOptimizer:
                     'lstm_num_layers', 'lstm_horizon', 'lstm_learning_rate',
                     'lstm_gradient_clip', 'update_limit']:
             if key in params_with_fixed:
-                cmd.append(f"{key}={params_with_fixed[key]}")
+                value = params_with_fixed[key]
+                # Ensure integer parameters are formatted as integers
+                if key in PARAM_TYPES and PARAM_TYPES[key] == int:
+                    value = int(round(value))
+                cmd.append(f"{key}={value}")
 
         # Create command line string for logging
         cmd_str = ' '.join(cmd)
@@ -377,6 +384,15 @@ class ParamOptimizer:
             result.error = "Shutdown in progress"
             result.valid = False
             return result
+
+        # Normalize parameters (ensure integers are integers, not floats)
+        normalized_params = {}
+        for k, v in params.items():
+            if k in PARAM_TYPES and PARAM_TYPES[k] == int:
+                normalized_params[k] = int(round(v))
+            else:
+                normalized_params[k] = v
+        params = normalized_params
 
         # Check cache first
         key = self.params_to_key(params)
