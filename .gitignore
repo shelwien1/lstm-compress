@@ -1,6 +1,7 @@
 # Build artifacts
 coder
 coder.exe
+kanncompr_
 *.o
 
 # Python cache
