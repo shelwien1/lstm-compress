@@ -5000,120 +5000,6 @@ static int fget_fl(FILE *file, float *value) {
 
 static char const *vers[] = { "0.1", "1.0", "2.0", "3.0", "4.0" };
 
-static int read_options(kanncompr_t *options, const char* opt) {
-  int return_value = 0;
-
-  if(!strncmp(opt, "-struct", 7)) {
-    options->n_layers_embed_hidden = options->n_layers_embed_output = -1;
-    sscanf(&opt[7], "%i,%i,%i,%i,%i,%i,%i,%i", &options->rnn_type, &options->n_layers, &options->n_layers_embed_hidden, &options->n_layers_embed_output, &options->n_neurons, &options->ulen, &options->norm, &options->var_h0);
-    if(options->n_layers_embed_hidden == -1) options->n_layers_embed_hidden = options->n_layers - 1;
-    if(options->n_layers_embed_output == -1) options->n_layers_embed_output = options->n_layers;
-  } else if(!strncmp(opt, "-train", 6)) {
-    sscanf(&opt[6], "%hhu,%f,%f,%f,%lu", &options->vocab_type, &options->grad_clip, &options->dropout, &options->temper, &options->seed);
-  } else if(!strncmp(opt, "-optim", 6)) {
-    sscanf(&opt[6], "%f,%f,%f,%f,%f,%f,%f,%f", &options->alpha1, &options->alpha2, &options->alpha1d, &options->beta1, &options->beta1t, &options->beta2, &options->beta2t, &options->eps);
-  } else if(!strncmp(opt, "-batch", 6)) {
-    sscanf(&opt[6], "%hu,%hu,%hu", &options->mini_batch_freq, &options->mini_batch_size, &options->mini_batch_step);
-  } else if(!strncmp(opt, "-profile", 8)) {
-    unsigned short level;
-    if(!strncmp(&opt[8], "default", 7)) {
-      level = 2;
-      sscanf(&opt[8 + 7], ",%hu", &level);
-      switch(level) {
-      case 1: // 2692-4712 K.
-        return_value = (read_options(options, "-struct51,2,1,2,128,10,1,1")                            |
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.003,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch10,1,1")
-                       ) != 0;
-        break;
-      case 2: // 21832-26892 K.
-        return_value = (read_options(options, "-struct51,3,2,3,256,20,1,1")                            |
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.003,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch20,2,8")
-                       ) != 0;
-        break;
-      case 3: // 129944-142680 K.
-        return_value = (read_options(options, "-struct51,4,3,4,512,40,1,1")                            |
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.004,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch40,2,8")
-                       ) != 0;
-        break;
-      default:
-        return_value = 1;
-        break;
-      }
-    } else if(!strncmp(&opt[8], "lstm-compress", 13)) {
-      level = 1;
-      sscanf(&opt[8 + 13], ",%hu", &level);
-      switch(level) {
-      case 1: // 3460-5188 K.
-        return_value = (read_options(options, "-struct31,3,2,3,90,10,1,1")                             |
-                        read_options(options, "-train1,-5.0,0.0,0.0,1")                                |
-                        read_options(options, "-optim0.003,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch10,1,1")
-                       ) != 0;
-        break;
-      default:
-        return_value = 1;
-        break;
-      }
-    } else if(!strncmp(&opt[8], "enwik8", 6)) {
-      level = 1;
-      sscanf(&opt[8 + 6], ",%hu", &level);
-      switch(level) {
-      case 1: // 91448-101844 K.
-        return_value = (read_options(options, "-struct51,2,1,1,808,40,1,1")                            | // -11, 51.
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.003,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch40,2,8")
-                       ) != 0;
-        break;
-        break;
-      default:
-        return_value = 1;
-        break;
-      }
-    } else if(!strncmp(&opt[8], "fenwik9", 7)) {
-      level = 1;
-      sscanf(&opt[8 + 7], ",%hu", &level);
-      switch(level) {
-      case 1: // 92420-104504 K.
-        return_value = (read_options(options, "-struct51,3,2,3,512,50,1,1")                            | // -11, 51.
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.003,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch50,2,8")
-                       ) != 0;
-        break;
-      case 2: // 678684-703188 K.
-        return_value = (read_options(options, "-struct51,4,3,4,1024,150,1,1")                          | // -11, 51.
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.004,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch150,2,8")
-                       ) != 0;
-        break;
-      case 3: // 1723188-1756344 K.
-        return_value = (read_options(options, "-struct51,6,4,5,1280,150,1,1")                          | // -11, 51.
-                        read_options(options, "-train1,4.0,0.0,0.0,1")                                 |
-                        read_options(options, "-optim0.005,0.001,0.9999,0.0,0.0,0.9999,0.9999,1e-010") |
-                        read_options(options, "-batch150,2,8")
-                       ) != 0;
-        break;
-      default:
-        return_value = 1;
-        break;
-      }
-    }
-  } else if(!strcmp(opt, "-h") || !strcmp(opt, "-help")) {
-    return_value = 1;
-  } else {
-    return_value = 2;
-  }
-
-  return return_value;
-}
 
 static void display_stats(stats_t *stats, unsigned long long comprpos) {
   if(stats->orig_current >= 1 && stats->orig_total >= 1 && comprpos != stats->rc_previous && stats->orig_current != stats->orig_previous)
@@ -5130,16 +5016,26 @@ static void display_stats(stats_t *stats, unsigned long long comprpos) {
 int main(int argc, char** argv) {
   kanncompr_t options;
 
+  // Check command line arguments
+  if(argc != 4 || (argv[1][0] != 'c' && argv[1][0] != 'd')) {
+    printf("kanncompr %s - Mauro Vezzosi - " VERSION_DATE "\n", vers[VERSION_ID]);
+    printf("https://encode.su/threads/4149-kanncompr\n");
+    printf("Compression  : kanncompr c original_file compressed_file\n");
+    printf("Decompression: kanncompr d compressed_file decompressed_file\n");
+    exit(1);
+  }
+
+  // Initialize with default profile settings (profiledefault,2)
   options.ann                     = NULL;
   options.n_char_in               = 256;
   options.n_char_out              = 256;
   options.seed                    = 1;
   options.rnn_type                = 51;
   options.n_layers                = 3;
-  options.n_neurons               = 90;
-  options.ulen                    = 10;
-  options.n_layers_embed_hidden   = options.n_layers - 1;
-  options.n_layers_embed_output   = options.n_layers;
+  options.n_neurons               = 256;
+  options.ulen                    = 20;
+  options.n_layers_embed_hidden   = 2;
+  options.n_layers_embed_output   = 3;
   options.grad_clip               = 4.0f;
   options.dropout                 = 0.0;
   options.temper                  = 0.0;
@@ -5174,8 +5070,8 @@ int main(int argc, char** argv) {
   options.alpha1d                 = 0.9999;
   options.beta1                   = 0.0;
   options.beta1t                  = 0.0;
-  options.beta2                   = 0.999;
-  options.beta2t                  = 0.999;
+  options.beta2                   = 0.9999;
+  options.beta2t                  = 0.9999;
   options.eps                     = 1e-10;
   options.ua                      = NULL;
   options.n_var                   = 0;
@@ -5184,83 +5080,18 @@ int main(int argc, char** argv) {
   options.xp                      = NULL;
   options.m                       = NULL;
   options.v                       = NULL;
-  options.mini_batch_freq         = options.ulen;
+  options.mini_batch_freq         = 20;
   options.mini_batch_freq_cnt     = 0;
-  options.mini_batch_size         = 1;
-  options.mini_batch_step         = 1;
+  options.mini_batch_size         = 2;
+  options.mini_batch_step         = 8;
   options.symb_list               = NULL;
   options.symb_list_ndx           = 0;
   options.symb_list_size          = options.ulen + options.mini_batch_step * (options.mini_batch_size - 1) + 1;
   options.vocab_type              = 0;
 
-  int argndx, display_help = read_options(&options, "-profiledefault,2");
-  for(argndx = 2; argndx < argc; argndx++) {
-    int read_options_return_value = read_options(&options, argv[argndx]);
-    if(read_options_return_value == 2) break;
-    display_help |= read_options_return_value;
-  }
-
-  display_help |= argc < 4 ||
-                  (argv[1][0] != 'c' && argv[1][0] != 'd' && argv[1][0] != 'o') ||
-                  argndx + 2 != argc;
-  if(display_help == 1) {
-    printf("kanncompr %s - Mauro Vezzosi - " VERSION_DATE "\n", vers[VERSION_ID]);
-    printf("https://encode.su/threads/4149-kanncompr\n");
-    printf("Compression  : kanncompr c [options] original_file compressed_file\n");
-    printf("Decompression: kanncompr d compressed_file decompressed_file\n");
-    printf("Comparison   : kanncompr o compressed_file original_file\n");
-    printf("Options      :\n");
-    printf("-struct[rnn_type[,n_layers[,n_layers_embed_hidden[,n_layers_embed_output[,n_neurons[,timesteps[,norm[,var_h0]]]]]]]]\n");
-    printf(" rnn_type              RNN cell type (10: RNN, 20: GRU, 21: MGU, 30: LSTM,\n");
-    printf("                                      31: LSTM-C, 40: Standard YamRNN,\n");
-    printf("                                      41-43: My variants 1-3 of YamRNN,\n");
-    printf("                                      50: LSTM-MV, 51: LSTM-MV-C)\n");
-    printf(" n_layers              number of layers\n");
-    printf(" n_layers_embed_hidden maximum number of layers in hidden embedding (n >= 1)\n");
-    printf(" n_layers_embed_output maximum number of layers in output embedding (n >= 1)\n");
-    printf(" n_neurons             number of hidden neurons\n");
-    printf(" timesteps             number of timesteps\n");
-    printf(" norm                  layer normalization (0: No, 1: Yes)\n");
-    printf(" var_h0                Take initial hidden values as variables (0: No, 1: Yes)\n");
-    printf("-train[vocab_type[,grad_clip[,dropout[,temper[,seed]]]]]\n");
-    printf(" vocab_type            type of symbol vocabulary (0: Full, 1: Minimal)\n");
-    printf(" grad_clip             gradient clipping\n");
-    printf(" dropout               dropout (0.0 <= n < 1.0)\n");
-    printf(" temper                temperature\n");
-    printf(" seed                  random number seed (0 <= n <= 2^32-1)\n");
-    printf("-optim[alpha1[,alpha2[,alpha1d[,beta1[,beta1t[,beta2[,beta2t[,eps]]]]]]]]\n");
-    printf(" alpha1,alpha2,alpha1d from, to, decay ADAM alpha\n");
-    printf(" beta1, beta1t         ADAM beta1, beta1t initial (0.0 <= n < 1.0)\n");
-    printf(" beta2, beta2t         ADAM beta2, beta2t initial\n");
-    printf(" eps                   ADAM eps\n");
-    printf("-batch[freq[,size[,step]]]\n");
-    printf(" freq                  mini-batch training frequency\n");
-    printf(" size                  mini-batch size (number of samples in each step)\n");
-    printf(" step                  step of samples in the mini-batch\n");
-    printf("-profile[name[,level]]\n");
-    printf(" name                  profile name (default, lstm-compress, enwik8, fenwik9)\n");
-    printf(" level                 profile level (1: Low, 2: Medium, 3: High)\n");
-    printf("                       name/level              1           2             3\n");
-    printf("                       default        2.7-4.7 MB    22- 27 MB*   130- 143 MB\n");
-    printf("                       lstm-compress  3.5-5.2 MB+\n");
-    printf("                       enwik8          92-102 MB+\n");
-    printf("                       fenwik9         92-105 MB+  679-703 MB   1723-1756 MB\n");
-    printf("                       *: default profile and level. +: default level.\n");
-    printf("-h, -help\n\n");
-    printf("Current options:\n");
-    printf("-struct%i,%i,%i,%i,%i,%i,%i,%i\n", options.rnn_type, options.n_layers, options.n_layers_embed_hidden, options.n_layers_embed_output, options.n_neurons, options.ulen, options.norm, options.var_h0);
-    printf("-train%hhu,%g,%g,%g,%lu\n"       , options.vocab_type, options.grad_clip, options.dropout, options.temper, options.seed);
-    printf("-optim%g,%g,%g,%g,%g,%g,%g,%g\n" , options.alpha1, options.alpha2, options.alpha1d, options.beta1, options.beta1t, options.beta2, options.beta2t, options.eps);
-    printf("-batch%hu,%hu,%hu\n\n"           , options.mini_batch_freq, options.mini_batch_size, options.mini_batch_step);
-    printf("Based on KANN NN library.\n");
-    printf("https://attractivechaos.wordpress.com/2017/03/04/kann-a-c-library-for-artificial-neural-network/\n");
-    printf("https://github.com/attractivechaos/kann\n");
-    exit(1);
-  }
-
-  FILE *filein = fopen(argv[argndx + 0], "rb");
+  FILE *filein = fopen(argv[2], "rb");
   if(filein == NULL) exit(2);
-  FILE *fileout = fopen(argv[argndx + 1], argv[1][0] == 'o' ? "rb" : "wb");
+  FILE *fileout = fopen(argv[3], "wb");
   if(fileout == NULL) exit(3);
 
   long fileoriglen = 0;
@@ -5297,43 +5128,11 @@ int main(int argc, char** argv) {
        fput_ui16(fileout, options.mini_batch_freq      ) ||
        fput_ui16(fileout, options.mini_batch_size      ) ||
        fput_ui16(fileout, options.mini_batch_step      ) ||
-       fput_si32(fileout, fileoriglen                  )
+       fput_si32(fileout, fileoriglen                  ) ||
+       fput_ui08(fileout, options.vocab_type           )
       )
       exit(5);
-
-    if(options.vocab_type == 0) {
-      fput_ui08(fileout, options.vocab_type);
-    } else {
-      int symb_num = 0;
-      options.vocab_symb = (unsigned char *)calloc(options.n_char_in, sizeof(unsigned char));
-      for(long fileorigpos = 0; fileorigpos < fileoriglen; fileorigpos++) options.vocab_symb[fgetc(filein)] = 1;
-      for(int i = 0, j = 0; i < options.n_char_in; i++) symb_num += options.vocab_symb[i];
-      fseek(filein, 0, SEEK_SET);
-
-      if(symb_num == options.n_char_in) {
-        options.vocab_type = 0;
-        fput_ui08(fileout, options.vocab_type);
-      } else if(symb_num >= (options.n_char_in + 7) / 8) {
-        options.vocab_type = 1;
-        fput_ui08(fileout, options.vocab_type);
-        unsigned char symb_flags = 0;
-        for(int i = 0; i < options.n_char_in; i++) {
-          symb_flags = (symb_flags << 1) | options.vocab_symb[i];
-          if((i & 0x07) == 0x07 | i == options.n_char_in - 1) {
-            fput_ui08(fileout, symb_flags);
-            symb_flags = 0;
-          }
-        }
-      } else {
-        options.vocab_type = 2;
-        fput_ui08(fileout, options.vocab_type | (symb_num << 2));
-        for(int i = 0; i < options.n_char_in; i++) if(options.vocab_symb[i]) fput_ui08(fileout, i);
-      }
-
-      for(int i = 0, j = 0; i < options.n_char_in; i++) if(options.vocab_symb[i]) options.vocab_symb[i] = j++;
-      options.n_char_in = options.n_char_out = symb_num;
-    }
-  } else if(argv[1][0] == 'd' || argv[1][0] == 'o') {
+  } else if(argv[1][0] == 'd') {
     if(fgetc(filein) != 'K' || fgetc(filein) != 'C' || fgetc(filein) != VERSION_ID) exit(4);
 
     if(fget_si00(filein, &options.rnn_type             ) ||
@@ -5359,42 +5158,10 @@ int main(int argc, char** argv) {
        fget_ui16(filein, &options.mini_batch_freq      ) ||
        fget_ui16(filein, &options.mini_batch_size      ) ||
        fget_ui16(filein, &options.mini_batch_step      ) ||
-       fget_si32(filein, &fileoriglen                  )
+       fget_si32(filein, &fileoriglen                  ) ||
+       fget_ui08(filein, &options.vocab_type           )
       )
       exit(5);
-
-    int symb_num;
-    fget_ui08(filein, &options.vocab_type);
-    switch(options.vocab_type & 0x03) {
-    case 0: {
-      symb_num = options.n_char_in;
-      break;
-    }
-    case 1: {
-      unsigned char symb_flags = 0;
-      symb_num = 0;
-      options.vocab_symb = (unsigned char *)calloc(options.n_char_in, sizeof(unsigned char));
-      for(int i = 0; i < options.n_char_in; i++) {
-        if((i & 0x07) == 0x00) fget_ui08(filein, &symb_flags);
-        if(symb_flags & 0x80) options.vocab_symb[symb_num++] = i;
-        symb_flags <<= 1;
-      }
-      break;
-    }
-    case 2: {
-      symb_num = options.vocab_type >> 2;
-      options.vocab_type = options.vocab_type & 0x03;
-      options.vocab_symb = (unsigned char *)calloc(symb_num, sizeof(unsigned char));
-      for(int i = 0; i < symb_num; i++) fget_ui08(filein, &options.vocab_symb[i]);
-      break;
-    }
-    default: {
-      exit(5);
-      break;
-    }
-    }
-
-    options.n_char_in = options.n_char_out = symb_num;
   }
 
   kann_srand(options.seed);
@@ -5434,7 +5201,6 @@ int main(int argc, char** argv) {
       ann_predict(&options, freq, &total);
       options.symb_list_ndx = (options.symb_list_ndx + 1) % options.symb_list_size;
       c = fgetc(filein);
-      if(options.vocab_type != 0) c = options.vocab_symb[c];
       options.symb_list[options.symb_list_ndx] = c;
       stats.orig_current++;
       for(i = 0, low = 0; i < (unsigned)c; i++) low += freq[i];
@@ -5460,7 +5226,7 @@ int main(int argc, char** argv) {
 
     display_stats(&stats, rc.Counter());
     printf("\n");
-  } else if(argv[1][0] == 'd' || argv[1][0] == 'o') {
+  } else if(argv[1][0] == 'd') {
     rc.StartDecode(filein);
 
     stats.orig_total = fileoriglen;
@@ -5476,18 +5242,8 @@ int main(int argc, char** argv) {
 
       if(c == options.n_char_out) break;
 
-      int cin = options.vocab_type == 0 ? c : options.vocab_symb[c];
-
       stats.orig_current++;
-      if(argv[1][0] == 'd') {
-        fputc(cin, fileout);
-      } else {
-        int cout = fgetc(fileout);
-        if(cin != cout) {
-          printf("\nCompare: Position %lu Byte decoded %i (0x%02x) Byte compared %i (0x%02x)\n", stats.orig_current, cin, cin, cout, cout);
-          exit(7);
-        }
-      }
+      fputc(c, fileout);
       options.symb_list_ndx = (options.symb_list_ndx + 1) % options.symb_list_size;
       options.symb_list[options.symb_list_ndx] = c;
 
@@ -5504,11 +5260,8 @@ int main(int argc, char** argv) {
 
     display_stats(&stats, rc.Counter());
     printf("\n");
-
-    if(argv[1][0] == 'o') printf("Compare: Ok\n");
   }
 
-  if(options.vocab_type == 1 || options.vocab_type == 2) free(options.vocab_symb);
   free(options.symb_list);
   free(freq);
 
