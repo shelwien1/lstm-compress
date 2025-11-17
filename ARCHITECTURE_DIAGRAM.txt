@@ -1,0 +1,237 @@
+================================================================================
+                    KANNCOMPR.CPP - ARCHITECTURE DIAGRAM
+================================================================================
+
+                              GLOBAL SCOPE
+    ┌─────────────────────────────────────────────────────────────┐
+    │                       HELPER CLASSES                         │
+    │  (All static methods - act as namespaces for algorithms)     │
+    ├─────────────────┬──────────────────┬───────────────────────┤
+    │  KadGraph       │  KadRng          │  KadMath              │
+    │  -----------   │  -------          │  --------             │
+    │  compile()     │  create()         │  saxpy()              │
+    │  eval_at()     │  seed()           │  sdot()               │
+    │  grad()        │  drand()          │  sgemm_simple()       │
+    │  sync_dim()    │  drand_normal()   │  vec_mul_sum()        │
+    │  unroll()      │                   │                       │
+    └─────────────────┴──────────────────┴───────────────────────┘
+
+                          CORE STRUCTURES
+    ┌──────────────────────────────────────────────────────────┐
+    │                    kad_node_t [STRUCT]                    │
+    │  - Core computational graph node                          │
+    │  - Members: op, n_d, flag, child[], x, g, pre            │
+    │  - Instance methods: is_var(), is_const(), length()      │
+    │  - Static factory: new_core(), var(), const_node()       │
+    │  - Static operations: add(), mul(), sigm(), relu(), etc. │
+    └──────────────────────────────────────────────────────────┘
+                                  ▲
+                                  │
+                        [constructed by]
+                                  │
+    ┌──────────────────────────────────────────────────────────┐
+    │                  kann_t [STRUCT]                          │
+    │  - Neural network container                              │
+    │  - Members: v (node array), x, g, c (buffers)            │
+    │  - Instance methods: size_var(), size_const()            │
+    │  - Created by: kann_new()                                │
+    │  - Managed by: kann_delete(), kann_unroll()              │
+    └──────────────────────────────────────────────────────────┘
+                                  ▲
+                                  │
+                        [contains & manages]
+                                  │
+    ┌──────────────────────────────────────────────────────────┐
+    │          kanncompr_t [TYPEDEF STRUCT] - Main Object       │
+    │  - Compression state container                           │
+    │  - Members:                                              │
+    │    • ann: kann_t* (trained model)                        │
+    │    • ua: kann_t* (unrolled for sequences)                │
+    │    • x, y: float** (training data)                       │
+    │    • m, v: float* (Adam momentum/variance)               │
+    │    • symb_list: byte* (vocabulary)                       │
+    │    • Architecture: n_layers, n_neurons, ulen             │
+    │    • Training: alpha, beta, eps (Adam params)            │
+    │  - Managed by: ann_init(), ann_train(), ann_predict()    │
+    │    ann_end(), ann_structure()                            │
+    └──────────────────────────────────────────────────────────┘
+
+                    FUNCTIONAL ORGANIZATION
+    
+    ┌─────────────────────────────────────────────────────────┐
+    │         GRAPH OPERATIONS (via KadGraph)                 │
+    │  (Operate on: int n, kad_node_t **v)                   │
+    ├──────────────────────────────────────────────────────────┤
+    │  - Compilation: compile_array() → kan_t*               │
+    │  - Forward: eval_at() → const float*                    │
+    │  - Backward: grad() → fills gradients                   │
+    │  - Memory: allocate_internal(), sync_dim()              │
+    │  - RNN: unroll() → fixed-length unrolled network        │
+    │  - Metadata: mark_back(), propagate_marks()             │
+    └──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │      NETWORK OPERATIONS (free functions on kann_t*)      │
+    ├──────────────────────────────────────────────────────────┤
+    │  - Creation: kann_new(cost_node, ...)                    │
+    │  - Feeding: kann_feed_bind(net, flag, label, x)         │
+    │  - Inference: kann_apply1(net, input)                    │
+    │  - Training: kann_cost(net, label, calc_grad)            │
+    │  - RNN State: kann_rnn_start(), kann_rnn_end()          │
+    │  - Control: kann_switch(net, is_train)                   │
+    │  - Cleanup: kann_delete(net)                             │
+    └──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  COMPRESSION OPERATIONS (free functions on kanncompr_t*)│
+    ├──────────────────────────────────────────────────────────┤
+    │  - Init: ann_init(options)                              │
+    │    └─ Allocates buffers, unrolls network                │
+    │  - Train: ann_train(options)                             │
+    │    └─ Forward→Backward→Gradient Clip→Adam Update         │
+    │  - Predict: ann_predict(options, freq, total)            │
+    │    └─ Single symbol prediction for codec                 │
+    │  - Cleanup: ann_end(options)                             │
+    │  - Architecture: ann_structure(options) → kann_t*        │
+    │    └─ Builds LSTM network topology                       │
+    └──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │         RANGECODER (Arithmetic Coding Engine)           │
+    │  - StartEncode(file)                                     │
+    │  - StartDecode(file)                                     │
+    │  - rc_Process(cumFreq, freq, totFreq)                   │
+    │  - rc_Renorm(), ShiftCode(), ShiftLow()                 │
+    │  - Counter() - bytes written/read                        │
+    └─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │      FILE I/O OPERATIONS (fput/fget functions)          │
+    │  - fput_ui08, fget_ui08 (byte)                           │
+    │  - fput_ui16, fget_ui16 (word)                           │
+    │  - fput_ui32, fget_ui32 (int32)                          │
+    │  - fput_fl, fget_fl (float)                              │
+    └─────────────────────────────────────────────────────────┘
+
+================================================================================
+                      DATA FLOW IN COMPRESSION
+================================================================================
+
+ENCODING PIPELINE:
+  Input File → ann_predict() → probability distribution
+                                     │
+                                     ▼
+                          Rangecoder::rc_Process()
+                                     │
+                                     ▼
+                          Write compressed bytes → Output File
+                                     │
+                                     ▼
+                          ann_train() → update weights
+                                     │
+                                     ▼
+                          Repeat for next symbol
+
+DECODING PIPELINE:
+  Compressed File → Rangecoder::rc_Process() → symbol prediction
+                                     │
+                                     ▼
+                          ann_predict() → frequency table
+                                     │
+                                     ▼
+                          Output symbol → Output File
+                                     │
+                                     ▼
+                          ann_train() → update weights
+                                     │
+                                     ▼
+                          Repeat for next symbol
+
+================================================================================
+                    MEMORY ORGANIZATION PATTERNS
+================================================================================
+
+STATIC CLASS PATTERN (Namespacing):
+  class KadGraph {
+    static void delete_graph(int n, kad_node_t **a);
+    static const float* eval_at(int n, kad_node_t **a, int from);
+    // ... all static, no instance data
+  };
+  // Becomes: KadGraph::method(nodes, ...)
+
+STRUCT WITH STATIC METHODS PATTERN:
+  struct kad_node_t {
+    // instance data
+    uint8_t flag;
+    float *x, *g;
+    
+    // instance methods
+    bool is_var() const { return flag & KAD_VAR; }
+    
+    // static factory methods
+    static kad_node_t* new_core(int n_d, int op, int n_child);
+    static kad_node_t* add(kad_node_t* x, kad_node_t* y);
+    // Creates new nodes or performs operations
+  };
+  // Usage: node = kad_node_t::add(left, right);
+
+OPAQUE POINTER PATTERN (void*):
+  void *rng = KadRng::create();              // Create RNG
+  KadRng::seed(rng, seed_value);             // Initialize
+  double val = KadRng::drand(rng);           // Use
+  // Caller doesn't know internal kad_rng_t structure
+
+BUFFER POOLING PATTERN:
+  kann_t.x → shared float buffer for ALL variables
+  kann_t.g → shared float buffer for ALL gradients
+  kann_t.c → shared float buffer for ALL constants
+  
+  Each node points into buffers: node->x = &kan.x[offset]
+  Reduces allocation overhead, improves cache locality
+
+FUNCTION POINTER DISPATCH:
+  kad_op_f kad_op_list[KAD_MAX_OP];
+  // Each operation type (0-63) has function:
+  //   op[i](kad_node_t *node, int action) → int
+  //   where action ∈ {ALLOC, FORWARD, BACKWARD, SYNC_DIM}
+  
+  Used by: kad_op_list[node->op](node, KAD_FORWARD);
+
+================================================================================
+                    REFACTORING TARGET STRUCTURE
+================================================================================
+
+CURRENT (Hybrid C/C++):
+  kann_t + {kan_delete, kann_feed_bind, kann_cost, ...}
+  kanncompr_t + {ann_init, ann_train, ann_predict, ann_end}
+
+REFACTORED (Modern C++):
+  
+  class NeuralNetwork {
+    unique_ptr<kann_t> impl;
+  public:
+    void feedBind(uint32_t flag, int label, float** x);
+    float computeCost(int label, bool calcGrad);
+    const float* predict(float* x);
+    ~NeuralNetwork() { /* automatic cleanup */ }
+  };
+  
+  class CompressionCodec {
+    unique_ptr<kanncompr_t> state;
+    NeuralNetwork net;
+  public:
+    void initialize();
+    uint8_t predictSymbol(uint* freq, uint* total);
+    void trainOnSymbol(uint8_t symbol);
+    void compress(const string& inFile, const string& outFile);
+    void decompress(const string& inFile, const string& outFile);
+  };
+  
+  // Replace 4 functions: ann_init/train/predict/end
+  // With 1 object managing full lifecycle
+
+================================================================================
