@@ -67,17 +67,17 @@ struct kad_node_t {
   struct kad_node_t  *pre{nullptr};
 
   // Member methods replacing external functions
-  inline bool is_back() const { return flag & KAD_VAR; }
-  inline bool is_ext() const { return n_child == 0; }
-  inline bool is_var() const { return is_ext() && is_back(); }
-  inline bool is_const() const { return is_ext() && (flag & KAD_CONST); }
-  inline bool is_feed() const { return is_ext() && !is_back() && !(flag & KAD_CONST); }
-  inline bool is_pivot() const { return n_child == 1 && (flag & KAD_POOL); }
-  inline bool is_switch() const { return op == 12 && !(flag & KAD_POOL); }
-  inline bool use_rng() const { return op == 15 || op == 24; }
+  bool is_back() const { return flag & KAD_VAR; }
+  bool is_ext() const { return n_child == 0; }
+  bool is_var() const { return is_ext() && is_back(); }
+  bool is_const() const { return is_ext() && (flag & KAD_CONST); }
+  bool is_feed() const { return is_ext() && !is_back() && !(flag & KAD_CONST); }
+  bool is_pivot() const { return n_child == 1 && (flag & KAD_POOL); }
+  bool is_switch() const { return op == 12 && !(flag & KAD_POOL); }
+  bool use_rng() const { return op == 15 || op == 24; }
 
-  inline void eval_enable() { tmp = 1; }
-  inline void eval_disable() { tmp = -1; }
+  void eval_enable() { tmp = 1; }
+  void eval_disable() { tmp = -1; }
 
   // Calculate tensor length
   int length() const {
@@ -89,17 +89,17 @@ struct kad_node_t {
 
 using kad_node_p = kad_node_t*;
 
-// Inline helper functions (wrappers for compatibility with C-style code)
-inline bool kad_is_back(const kad_node_t* p) { return p->is_back(); }
-inline bool kad_is_ext(const kad_node_t* p) { return p->is_ext(); }
-inline bool kad_is_var(const kad_node_t* p) { return p->is_var(); }
-inline bool kad_is_const(const kad_node_t* p) { return p->is_const(); }
-inline bool kad_is_feed(const kad_node_t* p) { return p->is_feed(); }
-inline bool kad_is_pivot(const kad_node_t* p) { return p->is_pivot(); }
-inline bool kad_is_switch(const kad_node_t* p) { return p->is_switch(); }
-inline bool kad_use_rng(const kad_node_t* p) { return p->use_rng(); }
-inline void kad_eval_enable(kad_node_t* p) { p->eval_enable(); }
-inline void kad_eval_disable(kad_node_t* p) { p->eval_disable(); }
+// helper functions (wrappers for compatibility with C-style code)
+bool kad_is_back(const kad_node_t* p) { return p->is_back(); }
+bool kad_is_ext(const kad_node_t* p) { return p->is_ext(); }
+bool kad_is_var(const kad_node_t* p) { return p->is_var(); }
+bool kad_is_const(const kad_node_t* p) { return p->is_const(); }
+bool kad_is_feed(const kad_node_t* p) { return p->is_feed(); }
+bool kad_is_pivot(const kad_node_t* p) { return p->is_pivot(); }
+bool kad_is_switch(const kad_node_t* p) { return p->is_switch(); }
+bool kad_use_rng(const kad_node_t* p) { return p->use_rng(); }
+void kad_eval_enable(kad_node_t* p) { p->eval_enable(); }
+void kad_eval_disable(kad_node_t* p) { p->eval_disable(); }
 
 kad_node_t **kad_compile_array(int *n_node, int n_roots, kad_node_t **roots);
 
@@ -166,7 +166,7 @@ typedef int (*kad_op_f)(kad_node_t*, int);
 extern kad_op_f kad_op_list[KAD_MAX_OP];
 
 // Wrapper function for kad_node_t::length() method
-inline int kad_len(const kad_node_t *p)
+int kad_len(const kad_node_t *p)
 {
   return p->length();
 }
@@ -181,19 +181,19 @@ struct kann_t {
   void *mt{nullptr};
 
   // Helper methods
-  inline int size_var() const { return kad_size_var(n, v); }
-  inline int size_const() const { return kad_size_const(n, v); }
-  inline void set_batch_size(int B) { kad_sync_dim(n, v, B); }
+  int size_var() const { return kad_size_var(n, v); }
+  int size_const() const { return kad_size_const(n, v); }
+  void set_batch_size(int B) { kad_sync_dim(n, v, B); }
 };
 
 extern int kann_verbose;
 
-// Inline functions replacing kann_ macros
-inline int kann_size_var(const kann_t* a) { return kad_size_var(a->n, a->v); }
-inline int kann_size_const(const kann_t* a) { return kad_size_const(a->n, a->v); }
-inline void kann_srand(uint64_t seed) { kad_srand(nullptr, seed); }
-inline double kann_drand() { return kad_drand(nullptr); }
-inline void kann_set_batch_size(kann_t* ann, int B) { kad_sync_dim(ann->n, ann->v, B); }
+// functions replacing kann_ macros
+int kann_size_var(const kann_t* a) { return kad_size_var(a->n, a->v); }
+int kann_size_const(const kann_t* a) { return kad_size_const(a->n, a->v); }
+void kann_srand(uint64_t seed) { kad_srand(nullptr, seed); }
+double kann_drand() { return kad_drand(nullptr); }
+void kann_set_batch_size(kann_t* ann, int B) { kad_sync_dim(ann->n, ann->v, B); }
 
 kann_t *kann_new(kad_node_t *cost, int n_rest, ...);
 
@@ -361,9 +361,9 @@ void kann_switch_core(kann_t *a, int is_train)
       *(int32_t*)a->v[i]->ptr = !!is_train;
 }
 
-// Inline functions replacing chk_ macros
-inline bool chk_flg(uint32_t flag, uint32_t mask) { return mask == 0 || (flag & mask); }
-inline bool chk_lbl(int32_t label, int32_t query) { return query == 0 || label == query; }
+// functions replacing chk_ macros
+bool chk_flg(uint32_t flag, uint32_t mask) { return mask == 0 || (flag & mask); }
+bool chk_lbl(int32_t label, int32_t query) { return query == 0 || label == query; }
 
 int kann_find(const kann_t *a, uint32_t ext_flag, int32_t ext_label)
 {
@@ -629,27 +629,27 @@ kad_node_t *kad_op1_core(int op, kad_node_t *x)
 }
 
 // Binary operations - replacing macro-generated functions with direct implementations
-inline kad_node_t* kad_add(kad_node_t* x, kad_node_t* y) { return kad_op2_core(1, x, y); }
-inline kad_node_t* kad_sub(kad_node_t* x, kad_node_t* y) { return kad_op2_core(23, x, y); }
-inline kad_node_t* kad_mul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(2, x, y); }
-inline kad_node_t* kad_cmul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(3, x, y); }
-inline kad_node_t* kad_matmul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(9, x, y); }
-inline kad_node_t* kad_ce_multi(kad_node_t* x, kad_node_t* y) { return kad_op2_core(13, x, y); }
-inline kad_node_t* kad_ce_bin(kad_node_t* x, kad_node_t* y) { return kad_op2_core(22, x, y); }
-inline kad_node_t* kad_ce_bin_neg(kad_node_t* x, kad_node_t* y) { return kad_op2_core(4, x, y); }
-inline kad_node_t* kad_mse(kad_node_t* x, kad_node_t* y) { return kad_op2_core(29, x, y); }
+kad_node_t* kad_add(kad_node_t* x, kad_node_t* y) { return kad_op2_core(1, x, y); }
+kad_node_t* kad_sub(kad_node_t* x, kad_node_t* y) { return kad_op2_core(23, x, y); }
+kad_node_t* kad_mul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(2, x, y); }
+kad_node_t* kad_cmul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(3, x, y); }
+kad_node_t* kad_matmul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(9, x, y); }
+kad_node_t* kad_ce_multi(kad_node_t* x, kad_node_t* y) { return kad_op2_core(13, x, y); }
+kad_node_t* kad_ce_bin(kad_node_t* x, kad_node_t* y) { return kad_op2_core(22, x, y); }
+kad_node_t* kad_ce_bin_neg(kad_node_t* x, kad_node_t* y) { return kad_op2_core(4, x, y); }
+kad_node_t* kad_mse(kad_node_t* x, kad_node_t* y) { return kad_op2_core(29, x, y); }
 
 // Unary operations - replacing macro-generated functions with direct implementations
-inline kad_node_t* kad_log(kad_node_t* x) { return kad_op1_core(27, x); }
-inline kad_node_t* kad_exp(kad_node_t* x) { return kad_op1_core(33, x); }
-inline kad_node_t* kad_sin(kad_node_t* x) { return kad_op1_core(34, x); }
-inline kad_node_t* kad_square(kad_node_t* x) { return kad_op1_core(5, x); }
-inline kad_node_t* kad_sigm(kad_node_t* x) { return kad_op1_core(6, x); }
-inline kad_node_t* kad_tanh(kad_node_t* x) { return kad_op1_core(7, x); }
-inline kad_node_t* kad_relu(kad_node_t* x) { return kad_op1_core(8, x); }
-inline kad_node_t* kad_1minus(kad_node_t* x) { return kad_op1_core(11, x); }
-inline kad_node_t* kad_softmax(kad_node_t* x) { return kad_op1_core(14, x); }
-inline kad_node_t* kad_stdnorm(kad_node_t* x) { return kad_op1_core(32, x); }
+kad_node_t* kad_log(kad_node_t* x) { return kad_op1_core(27, x); }
+kad_node_t* kad_exp(kad_node_t* x) { return kad_op1_core(33, x); }
+kad_node_t* kad_sin(kad_node_t* x) { return kad_op1_core(34, x); }
+kad_node_t* kad_square(kad_node_t* x) { return kad_op1_core(5, x); }
+kad_node_t* kad_sigm(kad_node_t* x) { return kad_op1_core(6, x); }
+kad_node_t* kad_tanh(kad_node_t* x) { return kad_op1_core(7, x); }
+kad_node_t* kad_relu(kad_node_t* x) { return kad_op1_core(8, x); }
+kad_node_t* kad_1minus(kad_node_t* x) { return kad_op1_core(11, x); }
+kad_node_t* kad_softmax(kad_node_t* x) { return kad_op1_core(14, x); }
+kad_node_t* kad_stdnorm(kad_node_t* x) { return kad_op1_core(32, x); }
 
 typedef struct {
   int kernel_size, stride, pad[2];
@@ -2163,9 +2163,9 @@ int fget_fl(FILE *file, float *value) {
 
 char const *vers[] = { "0.1", "1.0", "2.0", "3.0", "4.0" };
 
-// Inline functions replacing PERC and BPB macros (moved before use)
-inline float PERC(float V, float T) { return 100.0f * V / T; }
-inline float BPB(float V, float T) { return 8.0f * V / T; }
+// functions replacing PERC and BPB macros (moved before use)
+float PERC(float V, float T) { return 100.0f * V / T; }
+float BPB(float V, float T) { return 8.0f * V / T; }
 
 void display_stats(stats_t *stats, qword comprpos) {
   if(stats->orig_current >= 1 && stats->orig_total >= 1 && comprpos != stats->rc_previous && stats->orig_current != stats->orig_previous)
