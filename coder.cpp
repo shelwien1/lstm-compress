@@ -46,11 +46,15 @@ uint flen( FILE* f ) {
 
 class Sigmoid {
  public:
-  Sigmoid(int logit_size) : logit_size_(logit_size),
-      logit_table_(logit_size, 0) {
+  Sigmoid(int logit_size) : logit_size_(logit_size) {
+    logit_table_ = new float[logit_size_];
     for (int i = 0; i < logit_size_; ++i) {
       logit_table_[i] = SlowLogit((i + 0.5f) / logit_size_);
     }
+  }
+
+  ~Sigmoid() {
+    delete[] logit_table_;
   }
 
   float Logit(float p) const {
@@ -74,7 +78,7 @@ class Sigmoid {
   }
 
   int logit_size_;
-  std::vector<float> logit_table_;
+  float* logit_table_;
 };
 //--- #include "neuron-layer.hpp"
 
@@ -108,16 +112,24 @@ class LstmLayer {
 
   LstmLayer(unsigned int input_size, unsigned int auxiliary_input_size,
       unsigned int output_size) :
-      state_(NUM_CELLS), state_error_(NUM_CELLS), stored_error_(NUM_CELLS),
-      tanh_state_(HORIZON, std::vector<float>(NUM_CELLS)),
-      input_gate_state_(HORIZON, std::vector<float>(NUM_CELLS)),
-      last_state_(HORIZON, std::vector<float>(NUM_CELLS)),
       num_cells_(NUM_CELLS), epoch_(0), horizon_(HORIZON),
       input_size_(auxiliary_input_size), output_size_(output_size),
       forget_gate_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_),
       input_node_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_),
       output_gate_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_)
   {
+    for (unsigned int i = 0; i < NUM_CELLS; ++i) {
+      state_[i] = 0;
+      state_error_[i] = 0;
+      stored_error_[i] = 0;
+    }
+    for (unsigned int h = 0; h < HORIZON; ++h) {
+      for (unsigned int i = 0; i < NUM_CELLS; ++i) {
+        tanh_state_[h][i] = 0;
+        input_gate_state_[h][i] = 0;
+        last_state_[h][i] = 0;
+      }
+    }
     float val = sqrt(6.0f / float(input_size_ + output_size_));
     float low = -val;
     float range = 2 * val;
@@ -132,7 +144,7 @@ class LstmLayer {
   }
 
   void ForwardPass(const std::vector<float>& input, int input_symbol,
-      std::vector<float>* hidden, int hidden_start) {
+      float* hidden, int hidden_start) {
     // last_state_[epoch_] = state_;
     for (unsigned int i = 0; i < num_cells_; ++i) {
       last_state_[epoch_][i] = state_[i];
@@ -165,18 +177,18 @@ class LstmLayer {
     }
     // (*hidden)[slice] = output_gate_.state_[epoch_] * tanh_state_[epoch_];
     for (unsigned int i = 0; i < num_cells_; ++i) {
-      (*hidden)[hidden_start + i] = output_gate_.state_[epoch_][i] * tanh_state_[epoch_][i];
+      hidden[hidden_start + i] = output_gate_.state_[epoch_][i] * tanh_state_[epoch_][i];
     }
     ++epoch_;
     if (epoch_ == horizon_) epoch_ = 0;
   }
 
   void BackwardPass(const std::vector<float>& input, int epoch,
-      int layer, int input_symbol, std::vector<float>* hidden_error) {
+      int layer, int input_symbol, float* hidden_error) {
     if (epoch == (int)horizon_ - 1) {
       // stored_error_ = *hidden_error;
       for (unsigned int i = 0; i < num_cells_; ++i) {
-        stored_error_[i] = (*hidden_error)[i];
+        stored_error_[i] = hidden_error[i];
       }
       // state_error_ = 0;
       for (unsigned int i = 0; i < num_cells_; ++i) {
@@ -185,7 +197,7 @@ class LstmLayer {
     } else {
       // stored_error_ += *hidden_error;
       for (unsigned int i = 0; i < num_cells_; ++i) {
-        stored_error_[i] += (*hidden_error)[i];
+        stored_error_[i] += hidden_error[i];
       }
     }
 
@@ -212,7 +224,7 @@ class LstmLayer {
 
     // *hidden_error = 0;
     for (unsigned int i = 0; i < num_cells_; ++i) {
-      (*hidden_error)[i] = 0;
+      hidden_error[i] = 0;
     }
     if (epoch > 0) {
       // state_error_ *= forget_gate_.state_[epoch];
@@ -233,8 +245,8 @@ class LstmLayer {
     BackwardPass(input_node_, input, epoch, layer, input_symbol, hidden_error);
     BackwardPass(output_gate_, input, epoch, layer, input_symbol, hidden_error);
 
-    ClipGradients(&state_error_);
-    ClipGradients(&stored_error_);
+    ClipGradients(state_error_);
+    ClipGradients(stored_error_);
     ClipGradients(hidden_error);
   }
 
@@ -251,8 +263,12 @@ class LstmLayer {
   }
 
  private:
-  std::vector<float> state_, state_error_, stored_error_;
-  std::vector<std::vector<float>> tanh_state_, input_gate_state_, last_state_;
+  float state_[NUM_CELLS];
+  float state_error_[NUM_CELLS];
+  float stored_error_[NUM_CELLS];
+  float tanh_state_[HORIZON][NUM_CELLS];
+  float input_gate_state_[HORIZON][NUM_CELLS];
+  float last_state_[HORIZON][NUM_CELLS];
   unsigned int num_cells_, epoch_, horizon_, input_size_, output_size_;
   unsigned long long update_steps_ = 0;
   NeuronLayer forget_gate_, input_node_, output_gate_;
@@ -308,6 +324,13 @@ class LstmLayer {
     }
   }
 
+  void ClipGradients(float* arr) {
+    for (unsigned int i = 0; i < num_cells_; ++i) {
+      if (arr[i] < -gradient_clip_) arr[i] = -gradient_clip_;
+      else if (arr[i] > gradient_clip_) arr[i] = gradient_clip_;
+    }
+  }
+
   void ForwardPass(NeuronLayer& neurons, const std::vector<float>& input,
       int input_symbol) {
     for (unsigned int i = 0; i < num_cells_; ++i) {
@@ -336,7 +359,7 @@ class LstmLayer {
 
   void BackwardPass(NeuronLayer& neurons, const std::vector<float>&input,
       int epoch, int layer, int input_symbol,
-      std::vector<float>* hidden_error) {
+      float* hidden_error) {
     if (epoch == (int)horizon_ - 1) {
       // neurons.gamma_u_ = 0;
       for (unsigned int i = 0; i < neurons.gamma_u_.size(); ++i) {
@@ -383,7 +406,7 @@ class LstmLayer {
         for (unsigned int j = 0; j < num_cells_; ++j) {
           f += neurons.error_[j] * neurons.transpose_[num_cells_ + i][j];
         }
-        (*hidden_error)[i] += f;
+        hidden_error[i] += f;
       }
     }
     if (epoch > 0) {
@@ -426,8 +449,7 @@ class Lstm {
   static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
 
   NOINLINE
-  Lstm(unsigned int output_size) : input_history_(HORIZON),
-      hidden_(NUM_CELLS * NUM_LAYERS + 1), hidden_error_(NUM_CELLS),
+  Lstm(unsigned int output_size) :
       layer_input_(HORIZON, std::vector<std::vector<float>>(NUM_LAYERS,
       std::vector<float>(INPUT_SIZE + 1 + NUM_CELLS * 2))),
       output_layer_(HORIZON, std::vector<std::vector<float>>(output_size,
@@ -435,8 +457,15 @@ class Lstm {
       output_(HORIZON, std::vector<float>(output_size, 1.0 / output_size)),
       num_cells_(NUM_CELLS), epoch_(0),
       horizon_(HORIZON), input_size_(INPUT_SIZE), output_size_(output_size) {
-    hidden_[hidden_.size() - 1] = 1;
+    for (unsigned int i = 0; i < NUM_CELLS * NUM_LAYERS + 1; ++i) {
+      hidden_[i] = 0;
+    }
+    hidden_[NUM_CELLS * NUM_LAYERS] = 1;
+    for (unsigned int i = 0; i < NUM_CELLS; ++i) {
+      hidden_error_[i] = 0;
+    }
     for (int epoch = 0; epoch < HORIZON; ++epoch) {
+      input_history_[epoch] = 0;
       layer_input_[epoch][0].resize(1 + NUM_CELLS + INPUT_SIZE);
       for (unsigned int i = 0; i < NUM_LAYERS; ++i) {
         layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
@@ -450,7 +479,7 @@ class Lstm {
   ~Lstm() {}
 
   NOINLINE
-  void SetInput(const std::vector<float>& input) {
+  void SetInput(const float* input) {
     for (unsigned int i = 0; i < layers_.size(); ++i) {
       for (unsigned int j = 0; j < input_size_; ++j) {
         layer_input_[epoch_][i][j] = input[j];
@@ -470,7 +499,7 @@ class Lstm {
           int offset = layer * num_cells_;
           for (unsigned int i = 0; i < output_size_; ++i) {
             float error = (i == input_history_[epoch]) ? (output_[epoch][i] - 1) : output_[epoch][i];
-            for (unsigned int j = 0; j < hidden_error_.size(); ++j) {
+            for (unsigned int j = 0; j < NUM_CELLS; ++j) {
               hidden_error_[j] += output_layer_[epoch][i][j + offset] * error;
             }
           }
@@ -479,7 +508,7 @@ class Lstm {
           int input_symbol = input_history_[prev_epoch];
           if (epoch == 0) input_symbol = old_input;
           layers_[layer].BackwardPass(layer_input_[epoch][layer], epoch, layer,
-              input_symbol, &hidden_error_);
+              input_symbol, hidden_error_);
         }
       }
     }
@@ -505,7 +534,7 @@ class Lstm {
       for (unsigned int j = 0; j < num_cells_; ++j) {
         layer_input_[epoch_][i][input_size_ + j] = hidden_[hidden_offset + j];
       }
-      layers_[i].ForwardPass(layer_input_[epoch_][i], input, &hidden_, i *
+      layers_[i].ForwardPass(layer_input_[epoch_][i], input, hidden_, i *
           num_cells_);
       if (i < layers_.size() - 1) {
         unsigned int dest_offset = num_cells_ + input_size_;
@@ -516,7 +545,7 @@ class Lstm {
     }
     for (unsigned int i = 0; i < output_size_; ++i) {
       float sum = 0;
-      for (unsigned int j = 0; j < hidden_.size(); ++j) {
+      for (unsigned int j = 0; j < NUM_CELLS * NUM_LAYERS + 1; ++j) {
         sum += hidden_[j] * output_layer_[epoch_][i][j];
       }
       output_[epoch_][i] = exp(sum);
@@ -538,8 +567,9 @@ class Lstm {
 
  private:
   std::vector<LstmLayerType> layers_;
-  std::vector<uint8_t> input_history_;
-  std::vector<float> hidden_, hidden_error_;
+  uint8_t input_history_[HORIZON];
+  float hidden_[NUM_CELLS * NUM_LAYERS + 1];
+  float hidden_error_[NUM_CELLS];
   std::vector<std::vector<std::vector<float>>> layer_input_,
       output_layer_;
   std::vector<std::vector<float>> output_;
@@ -552,13 +582,18 @@ class Byte_Model {
  public:
   virtual ~Byte_Model() {}
 
-  Byte_Model(char* vocab) : outputs_(1, 0.5), ex(0), top_(255), mid_(0),
-      bot_(0), vocab_(vocab), probs_(256, 1.0 / 256) {}
+  Byte_Model(char* vocab) : ex(0), top_(255), mid_(0),
+      bot_(0), vocab_(vocab) {
+    outputs_[0] = 0.5;
+    for (int i = 0; i < 256; ++i) {
+      probs_[i] = 1.0 / 256;
+    }
+  }
 
-  const std::vector<float>& Predict() const {return outputs_;}
-  unsigned int NumOutputs() {return outputs_.size();}
+  const float* Predict() const {return outputs_;}
+  unsigned int NumOutputs() {return 1;}
 
-  std::vector<float>& Predict() {
+  float* Predict() {
     auto mid = bot_ + ((top_ - bot_) / 2);
     float num = 0.0f;
     for (int i = mid + 1; i <= top_; ++i) {
@@ -590,7 +625,7 @@ class Byte_Model {
     }
   }
 
-  const std::vector<float>& BytePredict() {
+  const float* BytePredict() {
     return probs_;
   }
 
@@ -605,10 +640,10 @@ class Byte_Model {
   int ex;
 
  protected:
-  mutable std::vector<float> outputs_;
+  mutable float outputs_[1];
   int top_, mid_, bot_;
   char* vocab_;
-  std::vector<float> probs_;
+  float probs_[256];
 };
 
 //--- #include "ppmd-model.hpp"
@@ -792,7 +827,7 @@ int main( int argc, char** argv ) {
 
 byte_model_->ByteUpdate(c);
 
-const std::vector<float>& p = byte_model_->BytePredict();
+const float* p = byte_model_->BytePredict();
 PM->lstm_->SetInput(p);
 
     PM->Update( c );
