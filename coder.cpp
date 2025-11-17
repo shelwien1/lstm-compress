@@ -70,7 +70,7 @@ class Sigmoid {
   }
 
   static float FastLogistic(float p) {
-    return (0.5f * (p / (1.0f + abs(p)) + 1.0f));
+    return (0.5f * (p / (1.0f + fabsf(p)) + 1.0f));
   }
 
  private:
@@ -91,32 +91,46 @@ struct NeuronLayer {
     input_size_ = input_size;
     transpose_size_ = input_size - offset;
 
-    error_ = new float[num_cells];
-    ivar_ = new float[horizon];
-    gamma_ = new float[num_cells];
+    error_ = new float[num_cells]();
+    ivar_ = new float[horizon]();
+    gamma_ = new float[num_cells]();
     for (unsigned int i = 0; i < num_cells; ++i) gamma_[i] = 1.0;
-    gamma_u_ = new float[num_cells];
-    gamma_m_ = new float[num_cells];
-    gamma_v_ = new float[num_cells];
-    beta_ = new float[num_cells];
-    beta_u_ = new float[num_cells];
-    beta_m_ = new float[num_cells];
-    beta_v_ = new float[num_cells];
+    gamma_u_ = new float[num_cells]();
+    gamma_m_ = new float[num_cells]();
+    gamma_v_ = new float[num_cells]();
+    beta_ = new float[num_cells]();
+    beta_u_ = new float[num_cells]();
+    beta_m_ = new float[num_cells]();
+    beta_v_ = new float[num_cells]();
 
     weights_ = new float*[num_cells];
-    for (unsigned int i = 0; i < num_cells; ++i) weights_[i] = new float[input_size];
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      weights_[i] = new float[input_size]();  // () initializes to zero
+    }
     state_ = new float*[horizon];
-    for (int i = 0; i < horizon; ++i) state_[i] = new float[num_cells];
+    for (int i = 0; i < horizon; ++i) {
+      state_[i] = new float[num_cells]();
+    }
     update_ = new float*[num_cells];
-    for (unsigned int i = 0; i < num_cells; ++i) update_[i] = new float[input_size];
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      update_[i] = new float[input_size]();
+    }
     m_ = new float*[num_cells];
-    for (unsigned int i = 0; i < num_cells; ++i) m_[i] = new float[input_size];
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      m_[i] = new float[input_size]();
+    }
     v_ = new float*[num_cells];
-    for (unsigned int i = 0; i < num_cells; ++i) v_[i] = new float[input_size];
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      v_[i] = new float[input_size]();
+    }
     transpose_ = new float*[transpose_size_];
-    for (unsigned int i = 0; i < transpose_size_; ++i) transpose_[i] = new float[num_cells];
+    for (unsigned int i = 0; i < transpose_size_; ++i) {
+      transpose_[i] = new float[num_cells]();
+    }
     norm_ = new float*[horizon];
-    for (int i = 0; i < horizon; ++i) norm_[i] = new float[num_cells];
+    for (int i = 0; i < horizon; ++i) {
+      norm_[i] = new float[num_cells]();
+    }
   }
 
   void Quit() {
@@ -209,6 +223,12 @@ class LstmLayer {
       }
       forget_gate_.weights_[i][forget_gate_.input_size_ - 1] = 1;
     }
+  }
+
+  void Quit() {
+    forget_gate_.Quit();
+    input_node_.Quit();
+    output_gate_.Quit();
   }
 
   void ForwardPass(const float* input, int input_symbol,
@@ -515,14 +535,14 @@ class Lstm {
     for (int h = 0; h < HORIZON; ++h) {
       layer_input_[h] = new float*[NUM_LAYERS];
       for (unsigned int l = 0; l < NUM_LAYERS; ++l) {
-        layer_input_[h][l] = new float[layer_input_size_];
+        layer_input_[h][l] = new float[layer_input_size_]();  // () initializes to zero
       }
     }
     output_layer_ = new float**[HORIZON];
     for (int h = 0; h < HORIZON; ++h) {
       output_layer_[h] = new float*[output_size];
       for (unsigned int i = 0; i < output_size; ++i) {
-        output_layer_[h][i] = new float[output_layer_size_];
+        output_layer_[h][i] = new float[output_layer_size_]();
       }
     }
     output_ = new float*[HORIZON];
@@ -555,6 +575,11 @@ class Lstm {
   }
 
   void Quit() {
+    // Clean up layers first
+    for (unsigned int i = 0; i < NUM_LAYERS; ++i) {
+      layers_[i].Quit();
+    }
+
     for (int h = 0; h < HORIZON; ++h) {
       for (unsigned int l = 0; l < NUM_LAYERS; ++l) {
         delete[] layer_input_[h][l];
