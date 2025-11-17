@@ -770,6 +770,15 @@ struct kvec_t {
     a[n++] = x;
   }
 
+  // Release ownership of the array (for when returning it)
+  T* release() {
+    T* result = a;
+    a = nullptr;
+    n = 0;
+    m = 0;
+    return result;
+  }
+
   ~kvec_t() { free(a); }
 };
 
@@ -804,19 +813,20 @@ kad_node_t **kad_compile_array(int *n_node, int n_roots, kad_node_t **roots)
     }
   }
   // stack is automatically freed by destructor
-  for (i = 0; i < (int)a.n; ++i) { 
+  for (i = 0; i < (int)a.n; ++i) {
     assert(a.a[i]->tmp>>1 == 0);
     a.a[i]->tmp = 0;
   }
 
-  for (i = 0; i < (int)a.n>>1; ++i) { 
+  for (i = 0; i < (int)a.n>>1; ++i) {
     kad_node_p t;
     t = a.a[i], a.a[i] = a.a[a.n-1-i], a.a[a.n-1-i] = t;
   }
   kad_allocate_internal(a.n, a.a);
 
   *n_node = a.n;
-  return a.a;
+  // Release ownership before returning to prevent destructor from freeing
+  return a.release();
 }
 
 kad_node_t **kad_compile(int *n_node, int n_roots, ...)
