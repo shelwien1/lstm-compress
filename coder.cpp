@@ -46,14 +46,15 @@ uint flen( FILE* f ) {
 
 class Sigmoid {
  public:
-  Sigmoid(int logit_size) : logit_size_(logit_size) {
+  void Init(int logit_size) {
+    logit_size_ = logit_size;
     logit_table_ = new float[logit_size_];
     for (int i = 0; i < logit_size_; ++i) {
       logit_table_[i] = SlowLogit((i + 0.5f) / logit_size_);
     }
   }
 
-  ~Sigmoid() {
+  void Quit() {
     delete[] logit_table_;
   }
 
@@ -83,17 +84,34 @@ class Sigmoid {
 //--- #include "neuron-layer.hpp"
 
 struct NeuronLayer {
-  NeuronLayer(unsigned int input_size, unsigned int num_cells, int horizon,
-    int offset) : error_(num_cells), ivar_(horizon), gamma_(num_cells, 1.0),
-    gamma_u_(num_cells), gamma_m_(num_cells), gamma_v_(num_cells),
-    beta_(num_cells), beta_u_(num_cells), beta_m_(num_cells),
-    beta_v_(num_cells), weights_(num_cells, std::vector<float>(input_size)),
-    state_(horizon, std::vector<float>(num_cells)),
-    update_(num_cells, std::vector<float>(input_size)),
-    m_(num_cells, std::vector<float>(input_size)),
-    v_(num_cells, std::vector<float>(input_size)),
-    transpose_(input_size - offset, std::vector<float>(num_cells)),
-    norm_(horizon, std::vector<float>(num_cells)) {}
+  void Init(unsigned int input_size, unsigned int num_cells, int horizon,
+    int offset) {
+    error_.resize(num_cells);
+    ivar_.resize(horizon);
+    gamma_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) gamma_[i] = 1.0;
+    gamma_u_.resize(num_cells);
+    gamma_m_.resize(num_cells);
+    gamma_v_.resize(num_cells);
+    beta_.resize(num_cells);
+    beta_u_.resize(num_cells);
+    beta_m_.resize(num_cells);
+    beta_v_.resize(num_cells);
+    weights_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) weights_[i].resize(input_size);
+    state_.resize(horizon);
+    for (int i = 0; i < horizon; ++i) state_[i].resize(num_cells);
+    update_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) update_[i].resize(input_size);
+    m_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) m_[i].resize(input_size);
+    v_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) v_[i].resize(input_size);
+    transpose_.resize(input_size - offset);
+    for (unsigned int i = 0; i < input_size - offset; ++i) transpose_[i].resize(num_cells);
+    norm_.resize(horizon);
+    for (int i = 0; i < horizon; ++i) norm_[i].resize(num_cells);
+  }
 
   std::vector<float> error_, ivar_, gamma_, gamma_u_, gamma_m_, gamma_v_,
       beta_, beta_u_, beta_m_, beta_v_;
@@ -110,14 +128,16 @@ class LstmLayer {
   static constexpr float gradient_clip_ = GRADIENT_CLIP_X10 / 10.0f;
   static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
 
-  LstmLayer(unsigned int input_size, unsigned int auxiliary_input_size,
-      unsigned int output_size) :
-      num_cells_(NUM_CELLS), epoch_(0), horizon_(HORIZON),
-      input_size_(auxiliary_input_size), output_size_(output_size),
-      forget_gate_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_),
-      input_node_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_),
-      output_gate_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_)
-  {
+  void Init(unsigned int input_size, unsigned int auxiliary_input_size,
+      unsigned int output_size) {
+    num_cells_ = NUM_CELLS;
+    epoch_ = 0;
+    horizon_ = HORIZON;
+    input_size_ = auxiliary_input_size;
+    output_size_ = output_size;
+    forget_gate_.Init(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_);
+    input_node_.Init(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_);
+    output_gate_.Init(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_);
     for (unsigned int i = 0; i < NUM_CELLS; ++i) {
       state_[i] = 0;
       state_error_[i] = 0;
@@ -449,14 +469,33 @@ class Lstm {
   static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
 
   NOINLINE
-  Lstm(unsigned int output_size) :
-      layer_input_(HORIZON, std::vector<std::vector<float>>(NUM_LAYERS,
-      std::vector<float>(INPUT_SIZE + 1 + NUM_CELLS * 2))),
-      output_layer_(HORIZON, std::vector<std::vector<float>>(output_size,
-      std::vector<float>(NUM_CELLS * NUM_LAYERS + 1))),
-      output_(HORIZON, std::vector<float>(output_size, 1.0 / output_size)),
-      num_cells_(NUM_CELLS), epoch_(0),
-      horizon_(HORIZON), input_size_(INPUT_SIZE), output_size_(output_size) {
+  void Init(unsigned int output_size) {
+    layer_input_.resize(HORIZON);
+    for (int h = 0; h < HORIZON; ++h) {
+      layer_input_[h].resize(NUM_LAYERS);
+      for (unsigned int l = 0; l < NUM_LAYERS; ++l) {
+        layer_input_[h][l].resize(INPUT_SIZE + 1 + NUM_CELLS * 2);
+      }
+    }
+    output_layer_.resize(HORIZON);
+    for (int h = 0; h < HORIZON; ++h) {
+      output_layer_[h].resize(output_size);
+      for (unsigned int i = 0; i < output_size; ++i) {
+        output_layer_[h][i].resize(NUM_CELLS * NUM_LAYERS + 1);
+      }
+    }
+    output_.resize(HORIZON);
+    for (int h = 0; h < HORIZON; ++h) {
+      output_[h].resize(output_size);
+      for (unsigned int i = 0; i < output_size; ++i) {
+        output_[h][i] = 1.0 / output_size;
+      }
+    }
+    num_cells_ = NUM_CELLS;
+    epoch_ = 0;
+    horizon_ = HORIZON;
+    input_size_ = INPUT_SIZE;
+    output_size_ = output_size;
     for (unsigned int i = 0; i < NUM_CELLS * NUM_LAYERS + 1; ++i) {
       hidden_[i] = 0;
     }
@@ -471,12 +510,13 @@ class Lstm {
         layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
       }
     }
+    layers_.resize(NUM_LAYERS);
     for (unsigned int i = 0; i < NUM_LAYERS; ++i) {
-      layers_.emplace_back(layer_input_[0][i].size() + output_size, INPUT_SIZE, output_size);
+      layers_[i].Init(layer_input_[0][i].size() + output_size, INPUT_SIZE, output_size);
     }
   }
 
-  ~Lstm() {}
+  void Quit() {}
 
   NOINLINE
   void SetInput(const float* input) {
@@ -580,10 +620,14 @@ class Lstm {
 
 class Byte_Model {
  public:
-  virtual ~Byte_Model() {}
+  virtual void Quit() {}
 
-  Byte_Model(char* vocab) : ex(0), top_(255), mid_(0),
-      bot_(0), vocab_(vocab) {
+  void Init(char* vocab) {
+    ex = 0;
+    top_ = 255;
+    mid_ = 0;
+    bot_ = 0;
+    vocab_ = vocab;
     outputs_[0] = 0.5;
     for (int i = 0; i < 256; ++i) {
       probs_[i] = 1.0 / 256;
@@ -652,12 +696,13 @@ class PPMD : public Byte_Model {
  public:
 
   NOINLINE
-  PPMD(int order, int memory, char* vocab) : Byte_Model(vocab) {
+  void Init(int order, int memory, char* vocab) {
+    Byte_Model::Init(vocab);
     ppmd_model_ = new ppmd_Model();
     ppmd_model_->Init(order,memory,1,0);
   }
 
-  ~PPMD() {
+  void Quit() {
     delete ppmd_model_;
   }
 
@@ -693,7 +738,7 @@ struct Model {
   LstmType* lstm_;
   char* vocab_;
 
-  Model( char* vocab, LstmType* lstm ) {
+  void Init( char* vocab, LstmType* lstm ) {
     vocab_ = vocab;
     lstm_ = lstm;
     int i, offset = 0;
@@ -795,12 +840,16 @@ int main( int argc, char** argv ) {
 
   for( i=0,total=0; i<CNUM; i++ ) total+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
-  auto byte_model_ = new PPMD(PPMD_ORDER, PPMD_MEMORY, cmap);
+  auto byte_model_ = new PPMD();
+  byte_model_->Init(PPMD_ORDER, PPMD_MEMORY, cmap);
 
   byte_model_->Byte_Model::ByteUpdate();
 
   srand(0xDEADBEEF);
-  Model<LstmType>* PM = new Model<LstmType>( cmap, new LstmType(total) );
+  auto lstm = new LstmType();
+  lstm->Init(total);
+  Model<LstmType>* PM = new Model<LstmType>();
+  PM->Init(cmap, lstm);
 
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
@@ -839,6 +888,13 @@ PM->lstm_->SetInput(p);
 
   fclose(g);
   fclose(f);
+
+  // Cleanup
+  delete PM;
+  lstm->Quit();
+  delete lstm;
+  byte_model_->Quit();
+  delete byte_model_;
 
   return 0;
 }
