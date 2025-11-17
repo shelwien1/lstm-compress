@@ -9,16 +9,11 @@
 #include <string.h>
 #include <xmmintrin.h>
 
-//#include "trace.inc"
-
 typedef unsigned short word;
 typedef unsigned int   uint;
 typedef unsigned char  byte;
 typedef unsigned long long qword;
 typedef signed long long sqword;
-
-#ifndef KANN_H
-#define KANN_H
 
 #define KANN_VERSION "r549"
 
@@ -35,15 +30,7 @@ typedef signed long long sqword;
 #define KANN_RNN_VAR_H0 0x1 
 #define KANN_RNN_NORM   0x2 
 
-#ifndef KANN_AUTODIFF_H
-#define KANN_AUTODIFF_H
-
 #define KAD_VERSION "r544"
-
-
-#ifdef __STRICT_ANSI__
-#define inline
-#endif
 
 #define KAD_MAX_DIM 4     
 #define KAD_MAX_OP  64    
@@ -83,10 +70,6 @@ typedef struct kad_node_t {
   struct kad_node_t  *pre;    
 } kad_node_t, *kad_node_p;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 kad_node_t **kad_compile_array(int *n_node, int n_roots, kad_node_t **roots);
 
 kad_node_t **kad_compile(int *n_node, int n_roots, ...); 
@@ -102,69 +85,35 @@ void kad_grad(int n, kad_node_t **a, int from);
 kad_node_t **kad_unroll(int n_v, kad_node_t **v, int *new_n, int *len);
 int kad_n_pivots(int n_v, kad_node_t **v);
 
-kad_node_t **kad_clone(int n, kad_node_t **v, int batch_size);
-
 kad_node_t *kad_var(float *x, float *g, int n_d, ...); 
-kad_node_t *kad_const(float *x, int n_d, ...);         
 kad_node_t *kad_feed(int n_d, ...);                    
 
 kad_node_t *kad_add(kad_node_t *x, kad_node_t *y); 
-kad_node_t *kad_sub(kad_node_t *x, kad_node_t *y); 
 kad_node_t *kad_mul(kad_node_t *x, kad_node_t *y); 
 
-kad_node_t *kad_matmul(kad_node_t *x, kad_node_t *y);     
 kad_node_t *kad_cmul(kad_node_t *x, kad_node_t *y);       
 
-kad_node_t *kad_mse(kad_node_t *x, kad_node_t *y);        
 kad_node_t *kad_ce_multi(kad_node_t *x, kad_node_t *y);   
-kad_node_t *kad_ce_bin(kad_node_t *x, kad_node_t *y);     
-kad_node_t *kad_ce_bin_neg(kad_node_t *x, kad_node_t *y); 
-kad_node_t *kad_ce_multi_weighted(kad_node_t *pred, kad_node_t *truth, kad_node_t *weight);
 
 #define KAD_PAD_NONE  0      
 #define KAD_PAD_SAME  (-2)   
 
-kad_node_t *kad_conv2d(kad_node_t *x, kad_node_t *w, int r_stride, int c_stride, int r_pad, int c_pad);             
-kad_node_t *kad_max2d(kad_node_t *x, int kernel_h, int kernel_w, int r_stride, int c_stride, int r_pad, int c_pad); 
-kad_node_t *kad_conv1d(kad_node_t *x, kad_node_t *w, int stride, int pad);  
-kad_node_t *kad_max1d(kad_node_t *x, int kernel_size, int stride, int pad); 
-kad_node_t *kad_avg1d(kad_node_t *x, int kernel_size, int stride, int pad); 
-
-kad_node_t *kad_dropout(kad_node_t *x, kad_node_t *r);                      
-kad_node_t *kad_sample_normal(kad_node_t *x);                               
-
-kad_node_t *kad_square(kad_node_t *x); 
 kad_node_t *kad_sigm(kad_node_t *x);   
 kad_node_t *kad_tanh(kad_node_t *x);   
-kad_node_t *kad_relu(kad_node_t *x);   
 kad_node_t *kad_softmax(kad_node_t *x);
 kad_node_t *kad_1minus(kad_node_t *x); 
-kad_node_t *kad_exp(kad_node_t *x);    
-kad_node_t *kad_log(kad_node_t *x);    
 kad_node_t *kad_sin(kad_node_t *x);    
 
 kad_node_t *kad_stdnorm(kad_node_t *x); 
 
 kad_node_t *kad_avg(int n, kad_node_t **x);   
-kad_node_t *kad_max(int n, kad_node_t **x);   
-kad_node_t *kad_stack(int n, kad_node_t **x); 
-kad_node_t *kad_select(int n, kad_node_t **x, int which); 
 
-kad_node_t *kad_reduce_sum(kad_node_t *x, int axis);  
-kad_node_t *kad_reduce_mean(kad_node_t *x, int axis); 
-
-kad_node_t *kad_slice(kad_node_t *x, int axis, int start, int end); 
 kad_node_t *kad_concat(int axis, int n, ...);                       
 kad_node_t *kad_concat_array(int axis, int n, kad_node_t **p);      
-kad_node_t *kad_reshape(kad_node_t *x, int n_d, int *d);            
-kad_node_t *kad_reverse(kad_node_t *x, int axis);
 kad_node_t *kad_switch(int n, kad_node_t **p);                      
 
 int kad_size_var(int n, kad_node_t *const* v);   
 int kad_size_const(int n, kad_node_t *const* v); 
-
-int kad_save(FILE *fp, int n_node, kad_node_t **node);
-kad_node_t **kad_load(FILE *fp, int *_n_node);
 
 void *kad_rng(void);
 void kad_srand(void *d, uint64_t seed);
@@ -174,12 +123,6 @@ double kad_drand_normal(void *d);
 void kad_saxpy(int n, float a, const float *x, float *y);
 
 void kad_trap_fe(void); 
-void kad_print_graph(FILE *fp, int n, kad_node_t **v);
-void kad_check_grad(int n, kad_node_t **a, int from);
-
-#ifdef __cplusplus
-}
-#endif
 
 #define KAD_ALLOC      1
 #define KAD_FORWARD    2
@@ -188,7 +131,6 @@ void kad_check_grad(int n, kad_node_t **a, int from);
 
 typedef int (*kad_op_f)(kad_node_t*, int);
 extern kad_op_f kad_op_list[KAD_MAX_OP];
-extern char *kad_op_name[KAD_MAX_OP];
 
 int kad_len(const kad_node_t *p) 
 {
@@ -196,8 +138,6 @@ int kad_len(const kad_node_t *p)
   for (i = 0; i < p->n_d; ++i) n *= p->d[i];
   return n;
 }
-
-#endif
 
 typedef struct {
   int n;            
@@ -210,38 +150,23 @@ extern int kann_verbose;
 
 #define kann_size_var(a) kad_size_var((a)->n, (a)->v)
 #define kann_size_const(a) kad_size_const((a)->n, (a)->v)
-#define kann_dim_in(a) kann_feed_dim((a), KANN_F_IN, 0)
-#define kann_dim_out(a) kann_feed_dim((a), KANN_F_TRUTH, 0)
 #define kann_srand(seed) kad_srand(0, (seed))
 #define kann_drand() kad_drand(0)
 #define kann_set_batch_size(ann, B) kad_sync_dim((ann)->n, (ann)->v, (B))
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 kann_t *kann_new(kad_node_t *cost, int n_rest, ...);
 
 kann_t *kann_unroll(kann_t *a, ...);
 
 kann_t *kann_unroll_array(kann_t *a, int *len);
-kann_t *kann_clone(kann_t *a, int batch_size);
 void kann_delete(kann_t *a);          
 void kann_delete_unrolled(kann_t *a); 
-
-void kann_mt(kann_t *ann, int n_threads, int max_batch_size);
 
 int kann_feed_bind(kann_t *a, uint32_t ext_flag, int32_t ext_label, float **x);
 
 float kann_cost(kann_t *a, int cost_label, int cal_grad);
 
-int kann_eval(kann_t *a, uint32_t ext_flag, int ext_label);
-int kann_eval_out(kann_t *a);
-int kann_class_error(const kann_t *ann, int *base);
-
 int kann_find(const kann_t *a, uint32_t ext_flag, int32_t ext_label);
-
-int kann_feed_dim(const kann_t *a, uint32_t ext_flag, int32_t ext_label);
 
 void kann_rnn_start(kann_t *a);
 
@@ -249,21 +174,12 @@ void kann_rnn_end(kann_t *a);
 
 void kann_switch(kann_t *a, int is_train);
 
-void kann_RMSprop(int n, float h0, const float *h, float decay, const float *g, float *t, float *r);
-
-void kann_shuffle(int n, int *s);
 float kann_grad_clip(float thres, int n, float *g);
 
 kad_node_t *kann_layer_input(int n1);
 kad_node_t *kann_layer_dense(kad_node_t *in, int n1);
-kad_node_t *kann_layer_dropout(kad_node_t *t, float r);
 kad_node_t *kann_layer_layernorm(kad_node_t *in);
-kad_node_t *kann_layer_rnn(kad_node_t *in, int n1, int rnn_flag);
-kad_node_t *kann_layer_lstm(kad_node_t *in, int n1, int rnn_flag);
-kad_node_t *kann_layer_gru(kad_node_t *in, int n1, int rnn_flag);
-kad_node_t *kann_layer_conv2d(kad_node_t *in, int n_flt, int k_rows, int k_cols, int stride_r, int stride_c, int pad_r, int pad_c);
-kad_node_t *kann_layer_conv1d(kad_node_t *in, int n_flt, int k_size, int stride, int pad);
-kad_node_t *kann_layer_cost(kad_node_t *t, int n_out, int cost_type);
+kad_node_t *kann_layer_dropout(kad_node_t *t, float r);
 
 kad_node_t *kann_new_leaf(uint8_t flag, float x0_01, int n_d, ...); 
 kad_node_t *kann_new_scalar(uint8_t flag, float x);
@@ -274,28 +190,10 @@ kad_node_t *kann_new_weight_conv1d(int n_out, int n_in, int kernel_len);
 
 kad_node_t *kann_new_leaf2(int *offset, kad_node_p *par, uint8_t flag, float x0_01, int n_d, ...);
 kad_node_t *kann_layer_dense2(int *offset, kad_node_p *par, kad_node_t *in, int n1);
-kad_node_t *kann_layer_dropout2(int *offset, kad_node_p *par, kad_node_t *t, float r);
 kad_node_t *kann_layer_layernorm2(int *offset, kad_node_t **par, kad_node_t *in);
-kad_node_t *kann_layer_rnn2(int *offset, kad_node_t **par, kad_node_t *in, kad_node_t *h0, int rnn_flag);
-kad_node_t *kann_layer_gru2(int *offset, kad_node_t **par, kad_node_t *in, kad_node_t *h0, int rnn_flag);
 
-int kann_train_fnn1(kann_t *ann, float lr, int mini_size, int max_epoch, int max_drop_streak, float frac_val, int n, float **_x, float **_y);
-float kann_cost_fnn1(kann_t *a, int n, float **x, float **y);
 const float *kann_apply1_to(kann_t *a, float *x, int ext_flag, int ext_label);
 const float *kann_apply1(kann_t *a, float *x);
-
-void kann_save_fp(FILE *fp, kann_t *ann);
-void kann_save(const char *fn, kann_t *ann);
-kann_t *kann_load_fp(FILE *fp);
-kann_t *kann_load(const char *fn);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
-
-int kann_verbose = 3;
 
 void kad_ext_collate(int n, kad_node_t **a, float **_x, float **_g, float **_c)
 {
@@ -376,16 +274,6 @@ kann_t *kann_new(kad_node_t *cost, int n_rest, ...)
   return a;
 }
 
-kann_t *kann_clone(kann_t *a, int batch_size)
-{
-  kann_t *b;
-  b = (kann_t*)calloc(1, sizeof(kann_t));
-  b->n = a->n;
-  b->v = kad_clone(a->n, a->v, batch_size);
-  kad_ext_collate(b->n, b->v, &b->x, &b->g, &b->c);
-  return b;
-}
-
 kann_t *kann_unroll_array(kann_t *a, int *len)
 {
   kann_t *b;
@@ -412,7 +300,7 @@ kann_t *kann_unroll(kann_t *a, ...)
 
 void kann_delete_unrolled(kann_t *a)
 {
-  if (a && a->mt) kann_mt(a, 0, 0);
+  
   if (a && a->v) kad_delete(a->n, a->v);
   free(a);
 }
@@ -454,15 +342,6 @@ int kann_feed_bind(kann_t *a, uint32_t ext_flag, int32_t ext_label, float **x)
   return k;
 }
 
-int kann_feed_dim(const kann_t *a, uint32_t ext_flag, int32_t ext_label)
-{
-  int i, k, n = 0;
-  for (i = k = 0; i < a->n; ++i)
-    if (kad_is_feed(a->v[i]) && chk_flg(a->v[i]->ext_flag, ext_flag) && chk_lbl(a->v[i]->ext_label, ext_label))
-      ++k, n = a->v[i]->n_d > 1? kad_len(a->v[i]) / a->v[i]->d[0] : a->v[i]->n_d == 1? a->v[i]->d[0] : 1;
-  return k == 1? n : k == 0? -1 : -2;
-}
-
 float kann_cost_core(kann_t *a, int cost_label, int cal_grad)
 {
   int i_cost;
@@ -472,16 +351,6 @@ float kann_cost_core(kann_t *a, int cost_label, int cal_grad)
   cost = *kad_eval_at(a->n, a->v, i_cost);
   if (cal_grad) kad_grad(a->n, a->v, i_cost);
   return cost;
-}
-
-int kann_eval(kann_t *a, uint32_t ext_flag, int ext_label)
-{
-  int i, k;
-  for (i = k = 0; i < a->n; ++i)
-    if (chk_flg(a->v[i]->ext_flag, ext_flag) && chk_lbl(a->v[i]->ext_label, ext_label))
-      ++k, a->v[i]->tmp = 1;
-  kad_eval_marked(a->n, a->v);
-  return k;
 }
 
 void kann_rnn_start(kann_t *a)
@@ -509,93 +378,10 @@ void kann_rnn_end(kann_t *a)
       a->v[i]->pre->x = (float*)calloc(kad_len(a->v[i]->pre), sizeof(float));
 }
 
-int kann_class_error_core(const kann_t *ann, int *base)
-{
-  int i, j, k, m, n, off, n_err = 0;
-  for (i = 0, *base = 0; i < ann->n; ++i) {
-    kad_node_t *p = ann->v[i];
-    if (((p->op == 13 && (p->n_child == 2 || p->n_child == 3)) || (p->op == 22 && p->n_child == 2)) && p->n_d == 0) { 
-      kad_node_t *x = p->child[0], *t = p->child[1];
-      n = t->d[t->n_d - 1], m = kad_len(t) / n;
-      for (j = off = 0; j < m; ++j, off += n) {
-        float t_sum = 0.0f, t_min = 1.0f, t_max = 0.0f, x_max = 0.0f, x_min = 1.0f;
-        int x_max_k = -1, t_max_k = -1;
-        for (k = 0; k < n; ++k) {
-          float xk = x->x[off+k], tk = t->x[off+k];
-          t_sum += tk;
-          t_min = t_min < tk? t_min : tk;
-          x_min = x_min < xk? x_min : xk;
-          if (t_max < tk) t_max = tk, t_max_k = k;
-          if (x_max < xk) x_max = xk, x_max_k = k;
-        }
-        if (t_sum - 1.0f == 0 && t_min >= 0.0f && x_min >= 0.0f && x_max <= 1.0f) {
-          ++(*base);
-          n_err += (x_max_k != t_max_k);
-        }
-      }
-    }
-  }
-  return n_err;
-}
-
-void kann_mt(kann_t *ann, int n_threads, int max_batch_size) {}
 float kann_cost(kann_t *a, int cost_label, int cal_grad) { return kann_cost_core(a, cost_label, cal_grad); }
-int kann_eval_out(kann_t *a) { return kann_eval(a, KANN_F_OUT, 0); }
-int kann_class_error(const kann_t *a, int *base) { return kann_class_error_core(a, base); }
 void kann_switch(kann_t *ann, int is_train) { return kann_switch_core(ann, is_train); }
 
 #define KANN_MAGIC "KAN\1"
-
-void kann_save_fp(FILE *fp, kann_t *ann)
-{
-  kann_set_batch_size(ann, 1);
-  fwrite(KANN_MAGIC, 1, 4, fp);
-  kad_save(fp, ann->n, ann->v);
-  fwrite(ann->x, sizeof(float), kann_size_var(ann), fp);
-  fwrite(ann->c, sizeof(float), kann_size_const(ann), fp);
-}
-
-void kann_save(const char *fn, kann_t *ann)
-{
-  FILE *fp;
-  fp = fn && strcmp(fn, "-")? fopen(fn, "wb") : stdout;
-  kann_save_fp(fp, ann);
-  fclose(fp);
-}
-
-kann_t *kann_load_fp(FILE *fp)
-{
-  char magic[4];
-  kann_t *ann;
-  int n_var, n_const;
-
-  fread(magic, 1, 4, fp);
-  if (strncmp(magic, KANN_MAGIC, 4) != 0) {
-    fclose(fp);
-    return 0;
-  }
-  ann = (kann_t*)calloc(1, sizeof(kann_t));
-  ann->v = kad_load(fp, &ann->n);
-  n_var = kad_size_var(ann->n, ann->v);
-  n_const = kad_size_const(ann->n, ann->v);
-  ann->x = (float*)malloc(n_var * sizeof(float));
-  ann->g = (float*)calloc(n_var, sizeof(float));
-  ann->c = (float*)malloc(n_const * sizeof(float));
-  fread(ann->x, sizeof(float), n_var, fp);
-  fread(ann->c, sizeof(float), n_const, fp);
-  kad_ext_sync(ann->n, ann->v, ann->x, ann->g, ann->c);
-  return ann;
-}
-
-kann_t *kann_load(const char *fn)
-{
-  FILE *fp;
-  kann_t *ann;
-  fp = fn && strcmp(fn, "-")? fopen(fn, "rb") : stdin;
-  ann = kann_load_fp(fp);
-  fclose(fp);
-  return ann;
-}
 
 kad_node_t *kann_new_leaf_array(int *offset, kad_node_p *par, uint8_t flag, float x0_01, int n_d, int32_t d[KAD_MAX_DIM])
 {
@@ -639,14 +425,6 @@ kad_node_t *kann_layer_dense2(int *offset, kad_node_p *par, kad_node_t *in, int 
   return kad_add(kad_cmul(in, w), b);
 }
 
-kad_node_t *kann_layer_dropout2(int *offset, kad_node_p *par, kad_node_t *t, float r)
-{
-  kad_node_t *x[2], *cr;
-  cr = kann_new_leaf2(offset, par, KAD_CONST, r, 0);
-  x[0] = t, x[1] = kad_dropout(t, cr);
-  return kad_switch(2, x);
-}
-
 kad_node_t *kann_layer_layernorm2(int *offset, kad_node_t **par, kad_node_t *in)
 {
   int n0;
@@ -660,63 +438,6 @@ kad_node_t *kann_layer_layernorm2(int *offset, kad_node_t **par, kad_node_t *in)
 kad_node_t *cmul_norm2(int *offset, kad_node_t **par, kad_node_t *x, kad_node_t *w, int use_norm)
 {
   return use_norm? kann_layer_layernorm2(offset, par, kad_cmul(x, w)) : kad_cmul(x, w);
-}
-
-kad_node_t *kann_layer_rnn2(int *offset, kad_node_t **par, kad_node_t *in, kad_node_t *h0, int rnn_flag)
-{
-  int n0, n1 = h0->d[h0->n_d-1], use_norm = !!(rnn_flag & KANN_RNN_NORM);
-  kad_node_t *t, *w, *u, *b, *out;
-
-  u = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n1);
-  b = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 1, n1);
-  t = cmul_norm2(offset, par, h0, u, use_norm);
-  if (in) {
-    n0 = in->n_d >= 2? kad_len(in) / in->d[0] : kad_len(in);
-    w = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n0);
-    t = kad_add(cmul_norm2(offset, par, in, w, use_norm), t);
-  }
-  out = kad_tanh(kad_add(t, b));
-  out->pre = h0;
-  return out;
-}
-
-kad_node_t *kann_layer_gru2(int *offset, kad_node_t **par, kad_node_t *in, kad_node_t *h0, int rnn_flag)
-{
-  int n0 = 0, n1 = h0->d[h0->n_d-1], use_norm = !!(rnn_flag & KANN_RNN_NORM);
-  kad_node_t *t, *r, *z, *w, *u, *b, *s, *out;
-
-  if (in) n0 = in->n_d >= 2? kad_len(in) / in->d[0] : kad_len(in);
-  
-  u = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n1);
-  b = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 1, n1);
-  t = cmul_norm2(offset, par, h0, u, use_norm);
-  if (in) {
-    w = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n0);
-    t = kad_add(cmul_norm2(offset, par, in, w, use_norm), t);
-  }
-  z = kad_sigm(kad_add(t, b));
-  
-  u = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n1);
-  b = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 1, n1);
-  t = cmul_norm2(offset, par, h0, u, use_norm);
-  if (in) {
-    w = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n0);
-    t = kad_add(cmul_norm2(offset, par, in, w, use_norm), t);
-  }
-  r = kad_sigm(kad_add(t, b));
-  
-  u = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n1);
-  b = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 1, n1);
-  t = cmul_norm2(offset, par, kad_mul(r, h0), u, use_norm);
-  if (in) {
-    w = kann_new_leaf2(offset, par, KAD_VAR, 0.0f, 2, n1, n0);
-    t = kad_add(cmul_norm2(offset, par, in, w, use_norm), t);
-  }
-  s = kad_tanh(kad_add(t, b));
-  
-  out = kad_add(kad_mul(kad_1minus(z), s), kad_mul(z, h0));
-  out->pre = h0;
-  return out;
 }
 
 kad_node_t *kann_new_leaf(uint8_t flag, float x0_01, int n_d, ...)
@@ -742,140 +463,12 @@ kad_node_t *kann_layer_input(int n1)
 }
 
 kad_node_t *kann_layer_dense(kad_node_t *in, int n1) { return kann_layer_dense2(0, 0, in, n1); }
-kad_node_t *kann_layer_dropout(kad_node_t *t, float r) { return kann_layer_dropout2(0, 0, t, r); }
 kad_node_t *kann_layer_layernorm(kad_node_t *in) { return kann_layer_layernorm2(0, 0, in); }
-
-kad_node_t *kann_layer_rnn(kad_node_t *in, int n1, int rnn_flag)
-{
-  kad_node_t *h0;
-  h0 = (rnn_flag & KANN_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-  h0->x = (float*)calloc(n1, sizeof(float));
-  return kann_layer_rnn2(0, 0, in, h0, rnn_flag);
-}
-
-kad_node_t *kann_layer_gru(kad_node_t *in, int n1, int rnn_flag)
-{
-  kad_node_t *h0;
-  h0 = (rnn_flag & KANN_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-  h0->x = (float*)calloc(n1, sizeof(float));
-  return kann_layer_gru2(0, 0, in, h0, rnn_flag);
-}
+kad_node_t *kann_layer_dropout(kad_node_t *t, float r) { return t; } 
 
 kad_node_t *kann_cmul_norm(kad_node_t *x, kad_node_t *w)
 {
   return kann_layer_layernorm(kad_cmul(x, w));
-}
-
-kad_node_t *kann_layer_lstm(kad_node_t *in, int n1, int rnn_flag)
-{
-  int n0;
-  kad_node_t *i, *f, *o, *g, *w, *u, *b, *h0, *c0, *c, *out;
-  kad_node_t *(*cmul)(kad_node_t*, kad_node_t*) = (rnn_flag & KANN_RNN_NORM)? kann_cmul_norm : kad_cmul;
-
-  n0 = in->n_d >= 2? kad_len(in) / in->d[0] : kad_len(in);
-  h0 = (rnn_flag & KANN_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-  h0->x = (float*)calloc(n1, sizeof(float));
-  c0 = (rnn_flag & KANN_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-  c0->x = (float*)calloc(n1, sizeof(float));
-
-  w = kann_new_weight(n1, n0);
-  u = kann_new_weight(n1, n1);
-  b = kann_new_bias(n1);
-  i = kad_sigm(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-  
-  w = kann_new_weight(n1, n0);
-  u = kann_new_weight(n1, n1);
-  b = kann_new_vec(n1, 1.0f); 
-  f = kad_sigm(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-  
-  w = kann_new_weight(n1, n0);
-  u = kann_new_weight(n1, n1);
-  b = kann_new_bias(n1);
-  o = kad_sigm(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-  
-  w = kann_new_weight(n1, n0);
-  u = kann_new_weight(n1, n1);
-  b = kann_new_bias(n1);
-  g = kad_tanh(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-  
-  c = kad_add(kad_mul(f, c0), kad_mul(g, i)); 
-  c->pre = c0;
-  
-  if (rnn_flag & KANN_RNN_NORM) c = kann_layer_layernorm(c); 
-  out = kad_mul(kad_tanh(c), o);
-  out->pre = h0;
-  return out;
-}
-
-kad_node_t *kann_layer_conv2d(kad_node_t *in, int n_flt, int k_rows, int k_cols, int stride_r, int stride_c, int pad_r, int pad_c)
-{
-  kad_node_t *w;
-  w = kann_new_weight_conv2d(n_flt, in->d[1], k_rows, k_cols);
-  return kad_conv2d(in, w, stride_r, stride_c, pad_r, pad_c);
-}
-
-kad_node_t *kann_layer_conv1d(kad_node_t *in, int n_flt, int k_size, int stride, int pad)
-{
-  kad_node_t *w;
-  w = kann_new_weight_conv1d(n_flt, in->d[1], k_size);
-  return kad_conv1d(in, w, stride, pad);
-}
-
-kad_node_t *kann_layer_cost(kad_node_t *t, int n_out, int cost_type)
-{
-  kad_node_t *cost = 0, *truth = 0;
-  assert(cost_type == KANN_C_CEB || cost_type == KANN_C_CEM || cost_type == KANN_C_CEB_NEG || cost_type == KANN_C_MSE);
-  t = kann_layer_dense(t, n_out);
-  truth = kad_feed(2, 1, n_out), truth->ext_flag |= KANN_F_TRUTH;
-  if (cost_type == KANN_C_MSE) {
-    cost = kad_mse(t, truth);
-  } else if (cost_type == KANN_C_CEB) {
-    t = kad_sigm(t);
-    cost = kad_ce_bin(t, truth);
-  } else if (cost_type == KANN_C_CEB_NEG) {
-    t = kad_tanh(t);
-    cost = kad_ce_bin_neg(t, truth);
-  } else if (cost_type == KANN_C_CEM) {
-    t = kad_softmax(t);
-    cost = kad_ce_multi(t, truth);
-  }
-  t->ext_flag |= KANN_F_OUT, cost->ext_flag |= KANN_F_COST;
-  return cost;
-}
-
-void kann_shuffle(int n, int *s)
-{
-  int i, j, t;
-  for (i = 0; i < n; ++i) s[i] = i;
-  for (i = n; i > 0; --i) {
-    j = (int)(i * kad_drand(0));
-    t = s[j], s[j] = s[i-1], s[i-1] = t;
-  }
-}
-
-
-void kann_RMSprop(int n, float h0, const float *h, float decay, const float *g, float *t, float *r)
-{
-  int i, n4 = n>>2<<2;
-  __m128 vh, vg, vr, vt, vd, vd1, tmp, vtiny;
-  vh = _mm_set1_ps(h0);
-  vd = _mm_set1_ps(decay);
-  vd1 = _mm_set1_ps(1.0f - decay);
-  vtiny = _mm_set1_ps(1e-6f);
-  for (i = 0; i < n4; i += 4) {
-    vt = _mm_loadu_ps(&t[i]);
-    vr = _mm_loadu_ps(&r[i]);
-    vg = _mm_loadu_ps(&g[i]);
-    if (h) vh = _mm_loadu_ps(&h[i]);
-    vr = _mm_add_ps(_mm_mul_ps(vd1, _mm_mul_ps(vg, vg)), _mm_mul_ps(vd, vr));
-    _mm_storeu_ps(&r[i], vr);
-    tmp = _mm_sub_ps(vt, _mm_mul_ps(_mm_mul_ps(vh, _mm_rsqrt_ps(_mm_add_ps(vtiny, vr))), vg));
-    _mm_storeu_ps(&t[i], tmp);
-  }
-  for (; i < n; ++i) {
-    r[i] = (1. - decay) * g[i] * g[i] + decay * r[i];
-    t[i] -= (h? h[i] : h0) / sqrtf(1e-6f + r[i]) * g[i];
-  }
 }
 
 float kann_grad_clip(float thres, int n, float *g)
@@ -889,125 +482,6 @@ float kann_grad_clip(float thres, int n, float *g)
     for (i = 0, s2 = 1.0 / s2; i < n; ++i)
       g[i] *= (float)s2;
   return (float)s2 / thres;
-}
-
-int kann_train_fnn1(kann_t *ann, float lr, int mini_size, int max_epoch, int max_drop_streak, float frac_val, int n, float **_x, float **_y)
-{
-  int i, j, *shuf, n_train, n_val, n_in, n_out, n_var, n_const, drop_streak = 0, min_set = 0;
-  float **x, **y, *x1, *y1, *r, min_val_cost = FLT_MAX, *min_x, *min_c;
-
-  n_in = kann_dim_in(ann);
-  n_out = kann_dim_out(ann);
-  if (n_in < 0 || n_out < 0) return -1;
-  n_var = kann_size_var(ann);
-  n_const = kann_size_const(ann);
-  r = (float*)calloc(n_var, sizeof(float));
-  shuf = (int*)malloc(n * sizeof(int));
-  x = (float**)malloc(n * sizeof(float*));
-  y = (float**)malloc(n * sizeof(float*));
-  kann_shuffle(n, shuf);
-  for (j = 0; j < n; ++j)
-    x[j] = _x[shuf[j]], y[j] = _y[shuf[j]];
-  n_val = (int)(n * frac_val);
-  n_train = n - n_val;
-  min_x = (float*)malloc(n_var * sizeof(float));
-  min_c = (float*)malloc(n_const * sizeof(float));
-
-  x1 = (float*)malloc(n_in  * mini_size * sizeof(float));
-  y1 = (float*)malloc(n_out * mini_size * sizeof(float));
-  kann_feed_bind(ann, KANN_F_IN,    0, &x1);
-  kann_feed_bind(ann, KANN_F_TRUTH, 0, &y1);
-
-  for (i = 0; i < max_epoch; ++i) {
-    int n_proc = 0, n_train_err = 0, n_val_err = 0, n_train_base = 0, n_val_base = 0;
-    double train_cost = 0.0, val_cost = 0.0;
-    kann_shuffle(n_train, shuf);
-    kann_switch(ann, 1);
-    while (n_proc < n_train) {
-      int b, c, ms = n_train - n_proc < mini_size? n_train - n_proc : mini_size;
-      for (b = 0; b < ms; ++b) {
-        memcpy(&x1[b*n_in],  x[shuf[n_proc+b]], n_in  * sizeof(float));
-        memcpy(&y1[b*n_out], y[shuf[n_proc+b]], n_out * sizeof(float));
-      }
-      kann_set_batch_size(ann, ms);
-      train_cost += kann_cost(ann, 0, 1) * ms;
-      c = kann_class_error(ann, &b);
-      n_train_err += c, n_train_base += b;
-      kann_RMSprop(n_var, lr, 0, 0.9f, ann->g, ann->x, r);
-      n_proc += ms;
-    }
-    train_cost /= n_train;
-    kann_switch(ann, 0);
-    n_proc = 0;
-    while (n_proc < n_val) {
-      int b, c, ms = n_val - n_proc < mini_size? n_val - n_proc : mini_size;
-      for (b = 0; b < ms; ++b) {
-        memcpy(&x1[b*n_in],  x[n_train+n_proc+b], n_in  * sizeof(float));
-        memcpy(&y1[b*n_out], y[n_train+n_proc+b], n_out * sizeof(float));
-      }
-      kann_set_batch_size(ann, ms);
-      val_cost += kann_cost(ann, 0, 0) * ms;
-      c = kann_class_error(ann, &b);
-      n_val_err += c, n_val_base += b;
-      n_proc += ms;
-    }
-    if (n_val > 0) val_cost /= n_val;
-    if (kann_verbose >= 3) {
-      fprintf(stderr, "epoch: %d; training cost: %g", i+1, train_cost);
-      if (n_train_base) fprintf(stderr, " (class error: %.2f%%)", 100.0f * n_train_err / n_train);
-      if (n_val > 0) {
-        fprintf(stderr, "; validation cost: %g", val_cost);
-        if (n_val_base) fprintf(stderr, " (class error: %.2f%%)", 100.0f * n_val_err / n_val);
-      }
-      fputc('\n', stderr);
-    }
-    if (i >= max_drop_streak && n_val > 0) {
-      if (val_cost < min_val_cost) {
-        min_set = 1;
-        memcpy(min_x, ann->x, n_var * sizeof(float));
-        memcpy(min_c, ann->c, n_const * sizeof(float));
-        drop_streak = 0;
-        min_val_cost = (float)val_cost;
-      } else if (++drop_streak >= max_drop_streak)
-        break;
-    }
-  }
-  if (min_set) {
-    memcpy(ann->x, min_x, n_var * sizeof(float));
-    memcpy(ann->c, min_c, n_const * sizeof(float));
-  }
-
-  free(min_c); free(min_x); free(y1); free(x1); free(y); free(x); free(shuf); free(r);
-  return i;
-}
-
-float kann_cost_fnn1(kann_t *ann, int n, float **x, float **y)
-{
-  int n_in, n_out, n_proc = 0, mini_size = 64 < n? 64 : n;
-  float *x1, *y1;
-  double cost = 0.0;
-
-  n_in = kann_dim_in(ann);
-  n_out = kann_dim_out(ann);
-  if (n <= 0 || n_in < 0 || n_out < 0) return 0.0;
-
-  x1 = (float*)malloc(n_in  * mini_size * sizeof(float));
-  y1 = (float*)malloc(n_out * mini_size * sizeof(float));
-  kann_feed_bind(ann, KANN_F_IN,    0, &x1);
-  kann_feed_bind(ann, KANN_F_TRUTH, 0, &y1);
-  kann_switch(ann, 0);
-  while (n_proc < n) {
-    int b, ms = n - n_proc < mini_size? n - n_proc : mini_size;
-    for (b = 0; b < ms; ++b) {
-      memcpy(&x1[b*n_in],  x[n_proc+b], n_in  * sizeof(float));
-      memcpy(&y1[b*n_out], y[n_proc+b], n_out * sizeof(float));
-    }
-    kann_set_batch_size(ann, ms);
-    cost += kann_cost(ann, 0, 0) * ms;
-    n_proc += ms;
-  }
-  free(y1); free(x1);
-  return (float)(cost / n);
 }
 
 const float *kann_apply1_to(kann_t *a, float *x, int ext_flag, int ext_label)
@@ -1025,171 +499,6 @@ const float *kann_apply1(kann_t *a, float *x)
 {
   return kann_apply1_to(a, x, KANN_F_OUT, 0);
 }
-
-
-#ifndef KANN_AUTODIFF_H
-#define KANN_AUTODIFF_H
-
-#define KAD_VERSION "r544"
-
-
-#ifdef __STRICT_ANSI__
-#define inline
-#endif
-
-#define KAD_MAX_DIM 4     
-#define KAD_MAX_OP  64    
-
-#define KAD_VAR        0x1
-#define KAD_CONST      0x2
-#define KAD_POOL       0x4
-#define KAD_SHARE_RNG  0x10 
-
-#define kad_is_back(p)  ((p)->flag & KAD_VAR)
-#define kad_is_ext(p)   ((p)->n_child == 0)
-#define kad_is_var(p)   (kad_is_ext(p) && kad_is_back(p))
-#define kad_is_const(p) (kad_is_ext(p) && ((p)->flag & KAD_CONST))
-#define kad_is_feed(p)  (kad_is_ext(p) && !kad_is_back(p) && !((p)->flag & KAD_CONST))
-#define kad_is_pivot(p) ((p)->n_child == 1 && ((p)->flag & KAD_POOL))
-#define kad_is_switch(p) ((p)->op == 12 && !((p)->flag & KAD_POOL))
-#define kad_use_rng(p)  ((p)->op == 15 || (p)->op == 24)
-
-#define kad_eval_enable(p) ((p)->tmp = 1)
-#define kad_eval_disable(p) ((p)->tmp = -1)
-
-typedef struct kad_node_t {
-  uint8_t     n_d;            
-  uint8_t     flag;           
-  uint16_t    op;             
-  int32_t     n_child;        
-  int32_t     tmp;            
-  int32_t     ptr_size;       
-  int32_t     d[KAD_MAX_DIM]; 
-  int32_t     ext_label;      
-  uint32_t    ext_flag;       
-  float      *x;              
-  float      *g;              
-  void       *ptr;            
-  void       *gtmp;           
-  struct kad_node_t **child;  
-  struct kad_node_t  *pre;    
-} kad_node_t, *kad_node_p;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-kad_node_t **kad_compile_array(int *n_node, int n_roots, kad_node_t **roots);
-
-kad_node_t **kad_compile(int *n_node, int n_roots, ...); 
-void kad_delete(int n, kad_node_t **a); 
-
-const float *kad_eval_at(int n, kad_node_t **a, int from);
-
-void kad_eval_marked(int n, kad_node_t **a);
-int kad_sync_dim(int n, kad_node_t **v, int batch_size);
-
-void kad_grad(int n, kad_node_t **a, int from);
-
-kad_node_t **kad_unroll(int n_v, kad_node_t **v, int *new_n, int *len);
-int kad_n_pivots(int n_v, kad_node_t **v);
-
-kad_node_t **kad_clone(int n, kad_node_t **v, int batch_size);
-
-kad_node_t *kad_var(float *x, float *g, int n_d, ...); 
-kad_node_t *kad_const(float *x, int n_d, ...);         
-kad_node_t *kad_feed(int n_d, ...);                    
-
-kad_node_t *kad_add(kad_node_t *x, kad_node_t *y); 
-kad_node_t *kad_sub(kad_node_t *x, kad_node_t *y); 
-kad_node_t *kad_mul(kad_node_t *x, kad_node_t *y); 
-
-kad_node_t *kad_matmul(kad_node_t *x, kad_node_t *y);     
-kad_node_t *kad_cmul(kad_node_t *x, kad_node_t *y);       
-
-kad_node_t *kad_mse(kad_node_t *x, kad_node_t *y);        
-kad_node_t *kad_ce_multi(kad_node_t *x, kad_node_t *y);   
-kad_node_t *kad_ce_bin(kad_node_t *x, kad_node_t *y);     
-kad_node_t *kad_ce_bin_neg(kad_node_t *x, kad_node_t *y); 
-kad_node_t *kad_ce_multi_weighted(kad_node_t *pred, kad_node_t *truth, kad_node_t *weight);
-
-#define KAD_PAD_NONE  0      
-#define KAD_PAD_SAME  (-2)   
-
-kad_node_t *kad_conv2d(kad_node_t *x, kad_node_t *w, int r_stride, int c_stride, int r_pad, int c_pad);             
-kad_node_t *kad_max2d(kad_node_t *x, int kernel_h, int kernel_w, int r_stride, int c_stride, int r_pad, int c_pad); 
-kad_node_t *kad_conv1d(kad_node_t *x, kad_node_t *w, int stride, int pad);  
-kad_node_t *kad_max1d(kad_node_t *x, int kernel_size, int stride, int pad); 
-kad_node_t *kad_avg1d(kad_node_t *x, int kernel_size, int stride, int pad); 
-
-kad_node_t *kad_dropout(kad_node_t *x, kad_node_t *r);                      
-kad_node_t *kad_sample_normal(kad_node_t *x);                               
-
-kad_node_t *kad_square(kad_node_t *x); 
-kad_node_t *kad_sigm(kad_node_t *x);   
-kad_node_t *kad_tanh(kad_node_t *x);   
-kad_node_t *kad_relu(kad_node_t *x);   
-kad_node_t *kad_softmax(kad_node_t *x);
-kad_node_t *kad_1minus(kad_node_t *x); 
-kad_node_t *kad_exp(kad_node_t *x);    
-kad_node_t *kad_log(kad_node_t *x);    
-kad_node_t *kad_sin(kad_node_t *x);    
-
-kad_node_t *kad_stdnorm(kad_node_t *x); 
-
-kad_node_t *kad_avg(int n, kad_node_t **x);   
-kad_node_t *kad_max(int n, kad_node_t **x);   
-kad_node_t *kad_stack(int n, kad_node_t **x); 
-kad_node_t *kad_select(int n, kad_node_t **x, int which); 
-
-kad_node_t *kad_reduce_sum(kad_node_t *x, int axis);  
-kad_node_t *kad_reduce_mean(kad_node_t *x, int axis); 
-
-kad_node_t *kad_slice(kad_node_t *x, int axis, int start, int end); 
-kad_node_t *kad_concat(int axis, int n, ...);                       
-kad_node_t *kad_concat_array(int axis, int n, kad_node_t **p);      
-kad_node_t *kad_reshape(kad_node_t *x, int n_d, int *d);            
-kad_node_t *kad_reverse(kad_node_t *x, int axis);
-kad_node_t *kad_switch(int n, kad_node_t **p);                      
-
-int kad_size_var(int n, kad_node_t *const* v);   
-int kad_size_const(int n, kad_node_t *const* v); 
-
-int kad_save(FILE *fp, int n_node, kad_node_t **node);
-kad_node_t **kad_load(FILE *fp, int *_n_node);
-
-void *kad_rng(void);
-void kad_srand(void *d, uint64_t seed);
-uint64_t kad_rand(void *d);
-double kad_drand(void *d);
-double kad_drand_normal(void *d);
-void kad_saxpy(int n, float a, const float *x, float *y);
-
-void kad_trap_fe(void); 
-void kad_print_graph(FILE *fp, int n, kad_node_t **v);
-void kad_check_grad(int n, kad_node_t **a, int from);
-
-#ifdef __cplusplus
-}
-#endif
-
-#define KAD_ALLOC      1
-#define KAD_FORWARD    2
-#define KAD_BACKWARD   3
-#define KAD_SYNC_DIM   4
-
-typedef int (*kad_op_f)(kad_node_t*, int);
-extern kad_op_f kad_op_list[KAD_MAX_OP];
-extern char *kad_op_name[KAD_MAX_OP];
-
-int kad_len(const kad_node_t *p) 
-{
-  int n = 1, i;
-  for (i = 0; i < p->n_d; ++i) n *= p->d[i];
-  return n;
-}
-
-#endif
 
 typedef struct {
   uint64_t s[2];
@@ -1301,104 +610,9 @@ KAD_FUNC_OP1(kad_1minus, 11)
 KAD_FUNC_OP1(kad_softmax, 14)
 KAD_FUNC_OP1(kad_stdnorm, 32)
 
-kad_node_t *kad_ce_multi_weighted(kad_node_t *pred, kad_node_t *truth, kad_node_t *weight)
-{
-  kad_node_t *s;
-  s = kad_new_core(0, 13, 3);
-  s->child[0] = pred, s->child[1] = truth, s->child[2] = weight;
-  return kad_finalize_node(s);
-}
-
-int conv_find_par(int in_size, int kernel_size, int stride, int pad0, int *new_pad0, int *new_pad1)
-{
-  int out_size, pad_both;
-  
-  if (pad0 == KAD_PAD_SAME && stride == 1) out_size = in_size;
-  else out_size = (in_size - kernel_size + (pad0 > 0? pad0 : 0) + stride - 1) / stride + 1;
-  pad_both = (out_size - 1) * stride + kernel_size - in_size;
-  *new_pad0 = pad_both / 2;
-  *new_pad1 = pad_both - *new_pad0;
-  return out_size;
-}
-
 typedef struct {
   int kernel_size, stride, pad[2];
 } conv_conf_t;
-
-conv_conf_t *conv2d_gen_aux(int in_row, int in_col, int kernel_r, int kernel_c, int stride_r, int stride_c, int top_pad, int left_pad)
-{
-  conv_conf_t *cnn;
-  cnn = (conv_conf_t*)calloc(2, sizeof(conv_conf_t));
-  cnn[0].kernel_size = kernel_r, cnn[0].stride = stride_r;
-  cnn[1].kernel_size = kernel_c, cnn[1].stride = stride_c;
-  conv_find_par(in_row, kernel_r, stride_r, top_pad,  &cnn[0].pad[0], &cnn[0].pad[1]);
-  conv_find_par(in_col, kernel_c, stride_c, left_pad, &cnn[1].pad[0], &cnn[1].pad[1]);
-  return cnn;
-}
-
-kad_node_t *kad_conv2d(kad_node_t *x, kad_node_t *w, int stride_r, int stride_c, int top_pad, int left_pad)
-{
-  kad_node_t *s;
-  if (x->n_d != 4 || w->n_d != 4) return 0;
-  s = kad_new_core(0, 16, 2);
-  s->child[0] = x, s->child[1] = w;
-  s->ptr = conv2d_gen_aux(x->d[2], x->d[3], w->d[2], w->d[3], stride_r, stride_c, top_pad, left_pad);
-  s->ptr_size = sizeof(conv_conf_t) * 2;
-  return kad_finalize_node(s);
-}
-
-kad_node_t *kad_max2d(kad_node_t *x, int kernel_r, int kernel_c, int stride_r, int stride_c, int top_pad, int left_pad)
-{
-  kad_node_t *s;
-  if (x->n_d != 4) return 0;
-  s = kad_new_core(0, 17, 1);
-  s->child[0] = x;
-  s->ptr = conv2d_gen_aux(x->d[2], x->d[3], kernel_r, kernel_c, stride_r, stride_c, top_pad, left_pad);
-  s->ptr_size = sizeof(conv_conf_t) * 2;
-  return kad_finalize_node(s);
-}
-
-conv_conf_t *conv1d_gen_aux(int in_col, int kernel_c, int stride_c, int left_pad)
-{
-  conv_conf_t *cnn;
-  cnn = (conv_conf_t*)calloc(1, sizeof(conv_conf_t));
-  cnn->kernel_size = kernel_c, cnn->stride = stride_c;
-  conv_find_par(in_col, kernel_c, stride_c, left_pad, &cnn->pad[0], &cnn->pad[1]);
-  return cnn;
-}
-
-kad_node_t *kad_conv1d(kad_node_t *x, kad_node_t *w, int stride, int left_pad)
-{
-  kad_node_t *s;
-  if (x->n_d != 3 || w->n_d != 3) return 0;
-  s = kad_new_core(0, 18, 2);
-  s->child[0] = x, s->child[1] = w;
-  s->ptr = conv1d_gen_aux(x->d[2], w->d[2], stride, left_pad);
-  s->ptr_size = sizeof(conv_conf_t);
-  return kad_finalize_node(s);
-}
-
-kad_node_t *kad_max1d(kad_node_t *x, int kernel_size, int stride, int left_pad)
-{
-  kad_node_t *s;
-  if (x->n_d != 3) return 0;
-  s = kad_new_core(0, 19, 1);
-  s->child[0] = x;
-  s->ptr = conv1d_gen_aux(x->d[2], kernel_size, stride, left_pad);
-  s->ptr_size = sizeof(conv_conf_t);
-  return kad_finalize_node(s);
-}
-
-kad_node_t *kad_avg1d(kad_node_t *x, int kernel_size, int stride, int left_pad)
-{
-  kad_node_t *s;
-  if (x->n_d != 3) return 0;
-  s = kad_new_core(0, 28, 1);
-  s->child[0] = x;
-  s->ptr = conv1d_gen_aux(x->d[2], kernel_size, stride, left_pad);
-  s->ptr_size = sizeof(conv_conf_t);
-  return kad_finalize_node(s);
-}
 
 kad_node_t *kad_pooling_general(int op, int n, kad_node_t **x)
 {
@@ -1412,64 +626,6 @@ kad_node_t *kad_pooling_general(int op, int n, kad_node_t **x)
 }
 
 kad_node_t *kad_avg(int n, kad_node_t **x)   { return kad_pooling_general(10, n, x); }
-kad_node_t *kad_max(int n, kad_node_t **x)   { return kad_pooling_general(21, n, x); }
-kad_node_t *kad_stack(int n, kad_node_t **x) { return kad_pooling_general(35, n, x); }
-
-kad_node_t *kad_select(int n, kad_node_t **x, int which)
-{
-  kad_node_t *s;
-  int32_t i, *aux;
-  aux = (int32_t*)calloc(1, 4);
-  *aux = which;
-  s = kad_new_core(0, 12, n);
-  for (i = 0; i < n; ++i) s->child[i] = x[i];
-  s->flag |= KAD_POOL, s->ptr = aux, s->ptr_size = 4;
-  return kad_finalize_node(s);
-}
-
-kad_node_t *kad_reduce_general(int op, kad_node_t *x, int axis)
-{
-  kad_node_t *s;
-  int32_t *aux;
-  aux = (int32_t*)malloc(4);
-  aux[0] = axis;
-  s = kad_new_core(0, op, 1);
-  s->child[0] = x;
-  s->ptr = aux, s->ptr_size = 4;
-  return kad_finalize_node(s);
-}
-
-kad_node_t *kad_reduce_sum(kad_node_t *x, int axis)  { return kad_reduce_general(25, x, axis); }
-kad_node_t *kad_reduce_mean(kad_node_t *x, int axis) { return kad_reduce_general(26, x, axis); }
-
-kad_node_t *kad_dropout(kad_node_t *x, kad_node_t *y)
-{
-  kad_node_t *z;
-  z = kad_op2_core(15, x, y);
-  z->ptr = kad_rng(), z->ptr_size = sizeof(kad_rng_t);
-  return z;
-}
-
-kad_node_t *kad_sample_normal(kad_node_t *x)
-{
-  kad_node_t *z;
-  z = kad_op1_core(24, x);
-  z->ptr = kad_rng(), z->ptr_size = sizeof(kad_rng_t);
-  return z;
-}
-
-kad_node_t *kad_slice(kad_node_t *x, int axis, int start, int end)
-{
-  kad_node_t *s;
-  int32_t *aux;
-  if (end < start || start < 0) return 0;
-  aux = (int32_t*)malloc(3 * 4);
-  aux[0] = axis, aux[1] = start, aux[2] = end;
-  s = kad_new_core(0, 20, 1);
-  s->child[0] = x;
-  s->ptr = aux, s->ptr_size = 3 * 4;
-  return kad_finalize_node(s);
-}
 
 kad_node_t *kad_concat_array(int axis, int n, kad_node_t **p)
 {
@@ -1496,30 +652,6 @@ kad_node_t *kad_concat(int axis, int n, ...)
   s = kad_concat_array(axis, n, p);
   free(p);
   return s;
-}
-
-kad_node_t *kad_reshape(kad_node_t *x, int n_d, int *d)
-{
-  kad_node_t *s;
-  int32_t i, *aux = 0;
-  if (n_d > 0) {
-    aux = (int32_t*)malloc(n_d * 4);
-    for (i = 0; i < n_d; ++i) aux[i] = d? d[i] : -1;
-  }
-  s = kad_new_core(0, 30, 1);
-  s->child[0] = x, s->ptr = aux, s->ptr_size = n_d * 4;
-  return kad_finalize_node(s);
-}
-
-kad_node_t *kad_reverse(kad_node_t *x, int axis)
-{
-  kad_node_t *s;
-  int32_t *aux;
-  aux = (int32_t*)malloc(4);
-  *aux = axis;
-  s = kad_new_core(0, 36, 1);
-  s->child[0] = x, s->ptr = aux, s->ptr_size = 4;
-  return kad_finalize_node(s);
 }
 
 kad_node_t *kad_switch(int n, kad_node_t **p)
@@ -1738,86 +870,6 @@ void kad_grad(int n, kad_node_t **a, int from)
   for (i = 0; i <= from; ++i) a[i]->tmp = 0;
 }
 
-void kad_save1(FILE *fp, const kad_node_t *p)
-{
-  fwrite(&p->ext_label, 4, 1, fp);
-  fwrite(&p->ext_flag, 4, 1, fp);
-  fwrite(&p->flag, 1, 1, fp);
-  fwrite(&p->n_child, 4, 1, fp);
-  if (p->n_child) {
-    int32_t j, pre = p->pre? p->pre->tmp : -1;
-    fwrite(&p->op, 2, 1, fp);
-    for (j = 0; j < p->n_child; ++j)
-      fwrite(&p->child[j]->tmp, 4, 1, fp);
-    fwrite(&pre, 4, 1, fp);
-    fwrite(&p->ptr_size, 4, 1, fp);
-    if (p->ptr_size > 0 && p->ptr)
-      fwrite(p->ptr, p->ptr_size, 1, fp);
-  } else {
-    fwrite(&p->n_d, 1, 1, fp);
-    if (p->n_d) fwrite(p->d, 4, p->n_d, fp);
-  }
-}
-
-kad_node_t *kad_load1(FILE *fp, kad_node_t **node)
-{
-  kad_node_t *p;
-  p = (kad_node_t*)calloc(1, sizeof(kad_node_t));
-  fread(&p->ext_label, 4, 1, fp);
-  fread(&p->ext_flag, 4, 1, fp);
-  fread(&p->flag, 1, 1, fp);
-  fread(&p->n_child, 4, 1, fp);
-  if (p->n_child) {
-    int32_t j, k;
-    p->child = (kad_node_t**)calloc(p->n_child, sizeof(kad_node_t*));
-    fread(&p->op, 2, 1, fp);
-    for (j = 0; j < p->n_child; ++j) {
-      fread(&k, 4, 1, fp);
-      p->child[j] = node? node[k] : 0;
-    }
-    fread(&k, 4, 1, fp);
-    if (k >= 0) p->pre = node[k];
-    fread(&p->ptr_size, 4, 1, fp);
-    if (p->ptr_size > 0) {
-      p->ptr = malloc(p->ptr_size);
-      fread(p->ptr, p->ptr_size, 1, fp);
-    }
-  } else {
-    fread(&p->n_d, 1, 1, fp);
-    if (p->n_d) fread(p->d, 4, p->n_d, fp);
-  }
-  return p;
-}
-
-int kad_save(FILE *fp, int n_node, kad_node_t **node)
-{
-  int32_t i, k = n_node;
-  fwrite(&k, 4, 1, fp);
-  for (i = 0; i < n_node; ++i) node[i]->tmp = i;
-  for (i = 0; i < n_node; ++i) kad_save1(fp, node[i]);
-  for (i = 0; i < n_node; ++i) node[i]->tmp = 0;
-  return 0;
-}
-
-kad_node_t **kad_load(FILE *fp, int *_n_node)
-{
-  int32_t i, n_node;
-  kad_node_t **node;
-  fread(&n_node, 4, 1, fp);
-  node = (kad_node_t**)malloc(n_node * sizeof(kad_node_t*));
-  for (i = 0; i < n_node; ++i) {
-    kad_node_t *p;
-    p = node[i] = kad_load1(fp, node);
-    if (p->n_child) {
-      kad_op_list[p->op](p, KAD_ALLOC);
-      kad_op_list[p->op](p, KAD_SYNC_DIM);
-    }
-  }
-  *_n_node = n_node;
-  kad_mark_back(n_node, node);
-  return node;
-}
-
 kad_node_t *kad_dup1(const kad_node_t *p)
 {
   kad_node_t *q;
@@ -1837,30 +889,6 @@ kad_node_t *kad_dup1(const kad_node_t *p)
     q->child = (kad_node_t**)calloc(q->n_child, sizeof(kad_node_t*));
   }
   return q;
-}
-
-kad_node_t **kad_clone(int n, kad_node_t **v, int batch_size)
-{
-  int i, j;
-  kad_node_t **u;
-  u = (kad_node_t**)calloc(n, sizeof(kad_node_t*));
-  for (i = 0; i < n; ++i) v[i]->tmp = i;
-  for (i = 0; i < n; ++i) {
-    kad_node_t *p = v[i], *q;
-    q = u[i] = kad_dup1(p);
-    if (p->pre) q->pre = u[p->pre->tmp];
-    if (p->n_child) {
-      for (j = 0; j < p->n_child; ++j)
-        q->child[j] = u[p->child[j]->tmp];
-    } else if (!kad_is_feed(p)) {
-      q->x = (float*)malloc(kad_len(p) * sizeof(float));
-      memcpy(q->x, p->x, kad_len(p) * sizeof(float));
-      q->g = 0;
-    }
-  }
-  for (i = 0; i < n; ++i) v[i]->tmp = 0;
-  kad_sync_dim(n, u, batch_size); 
-  return u;
 }
 
 typedef struct {
@@ -2154,30 +1182,6 @@ int kad_op_add(kad_node_t *p, int action)
   return 0;
 }
 
-int kad_op_sub(kad_node_t *p, int action)
-{
-  int i, n0, n1;
-  kad_node_t *q[2];
-
-  q[0] = p->child[0], n0 = kad_len(q[0]);
-  q[1] = p->child[1], n1 = kad_len(q[1]);
-  if (action == KAD_SYNC_DIM) {
-    if (n0 % n1 != 0) return -1;
-    kad_copy_dim1(p, q[0]);
-  } else if (action == KAD_FORWARD) {
-    assert(n0 >= n1);
-    memcpy(p->x, q[0]->x, n0 * sizeof(float));
-    for (i = 0; i < n0; i += n1)
-      kad_saxpy(n1, -1.0f, q[1]->x, p->x + i);
-  } else if (action == KAD_BACKWARD) {
-    if (kad_is_back(q[0])) kad_saxpy(n0, 1.0f, p->g, q[0]->g);
-    if (kad_is_back(q[1]))
-      for (i = 0; i < n0; i += n1)
-        kad_saxpy(n1, -1.0f, p->g + i, q[1]->g);
-  }
-  return 0;
-}
-
 int kad_op_mul(kad_node_t *p, int action)
 {
   int i, n0, n1;
@@ -2231,50 +1235,6 @@ int kad_op_cmul(kad_node_t *p, int action)
   return 0;
 }
 
-int kad_op_matmul(kad_node_t *p, int action) 
-{
-  int n_a_row, n_b_row, n_a_col, n_b_col;
-  kad_node_t *q[2];
-
-  q[0] = p->child[0];
-  q[1] = p->child[1];
-  n_a_row = q[0]->n_d == 1? 1 : q[0]->d[0];
-  n_b_row = q[1]->n_d == 1? 1 : q[1]->d[0];
-  n_a_col = kad_len(q[0]) / n_a_row;
-  n_b_col = kad_len(q[1]) / n_b_row;
-  if (action == KAD_SYNC_DIM) {
-    if (n_a_col != n_b_row) return -1;
-    p->n_d = 2, p->d[0] = n_a_row, p->d[1] = n_b_col;
-  } else if (action == KAD_FORWARD) {
-    memset(p->x, 0, n_a_row * n_b_col * sizeof(float));
-    if (q[0]->x && q[1]->x)
-      kad_sgemm_simple(0, 0, n_a_row, n_b_col, n_a_col, q[0]->x, q[1]->x, p->x); 
-  } else if (action == KAD_BACKWARD) {
-    if (kad_is_back(q[0]) && q[1]->x)
-      kad_sgemm_simple(0, 1, n_a_row, n_a_col, n_b_col, p->g, q[1]->x, q[0]->g); 
-    if (kad_is_back(q[1]) && q[0]->x)
-      kad_sgemm_simple(1, 0, n_b_row, n_b_col, n_a_row, q[0]->x, p->g, q[1]->g); 
-  }
-  return 0;
-}
-
-int kad_op_square(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < n; ++i)
-      p->x[i] = q->x[i] * q->x[i];
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < n; ++i)
-      q->g[i] += p->g[i] * (q->x[i] + q->x[i]);
-  }
-  return 0;
-}
-
 int kad_op_1minus(kad_node_t *p, int action)
 {
   int i, n;
@@ -2286,177 +1246,6 @@ int kad_op_1minus(kad_node_t *p, int action)
     for (i = 0; i < n; ++i) p->x[i] = 1.0f - q->x[i];
   } else if (action == KAD_BACKWARD && kad_is_back(q)) {
     kad_saxpy(n, -1.0f, p->g, q->g);
-  }
-  return 0;
-}
-
-int kad_op_exp(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < n; ++i) p->x[i] = expf(q->x[i]);
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < n; ++i)
-      q->g[i] += p->g[i] * p->x[i];
-  }
-  return 0;
-}
-
-int kad_op_log(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < n; ++i) p->x[i] = logf(q->x[i]);
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < n; ++i)
-      q->g[i] += p->g[i] / q->x[i];
-  }
-  return 0;
-}
-
-int kad_op_reduce_sum(kad_node_t *p, int action)
-{
-  kad_node_t *q = p->child[0];
-  int i, j, k, axis, d0, d1;
-
-  assert(p->ptr);
-  axis = *(int32_t*)p->ptr;
-  if (axis < 0 || axis >= q->n_d) return -1;
-  for (i = 0, d0 = 1; i < axis; ++i) d0 *= q->d[i];
-  for (i = axis + 1, d1 = 1; i < q->n_d; ++i) d1 *= q->d[i];
-  if (action == KAD_SYNC_DIM) {
-    p->n_d = q->n_d - 1;
-    for (i = j = 0; i < q->n_d; ++i)
-      if (i != axis) p->d[j++] = q->d[i];
-  } else if (action == KAD_FORWARD) {
-    memset(p->x, 0, kad_len(p) * sizeof(float));
-    for (i = 0; i < d0; ++i)
-      for (j = 0; j < q->d[axis]; ++j)
-        for (k = 0; k < d1; ++k)
-          p->x[i * d1 + k] += q->x[(i * q->d[axis] + j) * d1 + k];
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < d0; ++i)
-      for (j = 0; j < q->d[axis]; ++j)
-        for (k = 0; k < d1; ++k)
-          q->g[(i * q->d[axis] + j) * d1 + k] += p->g[i * d1 + k];
-  }
-  return 0;
-}
-
-int kad_op_reduce_mean(kad_node_t *p, int action)
-{
-  kad_node_t *q = p->child[0];
-  int i, j, k, axis, d0, d1;
-
-  assert(p->ptr);
-  axis = *(int32_t*)p->ptr;
-  if (axis < 0 || axis >= q->n_d) return -1;
-  for (i = 0, d0 = 1; i < axis; ++i) d0 *= q->d[i];
-  for (i = axis + 1, d1 = 1; i < q->n_d; ++i) d1 *= q->d[i];
-  if (action == KAD_SYNC_DIM) {
-    p->n_d = q->n_d - 1;
-    for (i = j = 0; i < q->n_d; ++i)
-      if (i != axis) p->d[j++] = q->d[i];
-  } else if (action == KAD_FORWARD) {
-    float t = 1.0f / q->d[axis];
-    memset(p->x, 0, kad_len(p) * sizeof(float));
-    for (i = 0; i < d0; ++i)
-      for (j = 0; j < q->d[axis]; ++j)
-        for (k = 0; k < d1; ++k)
-          p->x[i * d1 + k] += t * q->x[(i * q->d[axis] + j) * d1 + k];
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    float t = 1.0f / q->d[axis];
-    for (i = 0; i < d0; ++i)
-      for (j = 0; j < q->d[axis]; ++j)
-        for (k = 0; k < d1; ++k)
-          q->g[(i * q->d[axis] + j) * d1 + k] += t * p->g[i * d1 + k];
-  }
-  return 0;
-}
-
-int kad_op_dropout(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  assert(p->child[1]->n_d == 0);
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_ALLOC) {
-    if (kad_is_back(p->child[0]))
-      p->gtmp = realloc(p->gtmp, n);
-  } else if (action == KAD_FORWARD) {
-    float r = kad_is_const(q) || kad_is_var(q)? 0.0f : *p->child[1]->x, z = 1.0f / (1.0f - r);
-    uint8_t *flag = (uint8_t*)p->gtmp;
-    for (i = 0; i < n; ++i) {
-      int kept = (kad_drand(p->ptr) >= r);
-      p->x[i] = kept? q->x[i] * z : 0.0f;
-      if (flag) flag[i] = kept;
-    }
-  } else if (action == KAD_BACKWARD && kad_is_back(p->child[0])) {
-    float r = kad_is_const(q) || kad_is_var(q)? 0.0f : *p->child[1]->x, z = 1.0f / (1.0f - r);
-    uint8_t *flag = (uint8_t*)p->gtmp;
-    for (i = 0; i < n; ++i)
-      if (flag[i]) q->g[i] += z * p->g[i];
-  }
-  return 0;
-}
-
-int kad_op_sample_normal(kad_node_t *p, int action) 
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_ALLOC) {
-    if (kad_is_back(p->child[0]))
-      p->gtmp = realloc(p->gtmp, n * sizeof(float));
-  } else if (action == KAD_FORWARD) {
-    float *r = (float*)p->gtmp;
-    for (i = 0; i < n; ++i) {
-      float z;
-      z = (float)kad_drand_normal(p->ptr);
-      p->x[i] = q->x[i] * z;
-      if (r) r[i] = z;
-    }
-  } else if (action == KAD_BACKWARD && kad_is_back(p->child[0])) {
-    float *r = (float*)p->gtmp;
-    for (i = 0; i < n; ++i)
-      q->g[i] += p->g[i] * r[i];
-  }
-  return 0;
-}
-
-int kad_op_slice(kad_node_t *p, int action)
-{
-  kad_node_t *q = p->child[0];
-  int32_t *aux, *range;
-  int i, axis, d0, d1;
-
-  assert(p->ptr);
-  aux = (int32_t*)p->ptr, axis = aux[0], range = aux + 1;
-  if (axis < 0 || axis >= q->n_d) return -1;
-  for (i = 0, d0 = 1; i < axis; ++i) d0 *= q->d[i];
-  for (i = axis + 1, d1 = 1; i < q->n_d; ++i) d1 *= q->d[i];
-  if (action == KAD_SYNC_DIM) {
-    if (range[0] >= range[1] || range[0] < 0 || range[1] > q->d[axis]) return -1;
-    kad_copy_dim1(p, q);
-    p->d[axis] = range[1] - range[0];
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < d0; ++i)
-      memcpy(&p->x[i * p->d[axis] * d1], &q->x[(i * q->d[axis] + range[0]) * d1], (range[1] - range[0]) * d1 * sizeof(float));
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < d0; ++i)
-      kad_saxpy((range[1] - range[0]) * d1, 1.0f, &p->g[i * p->d[axis] * d1], &q->g[(i * q->d[axis] + range[0]) * d1]);
   }
   return 0;
 }
@@ -2495,154 +1284,6 @@ int kad_op_concat(kad_node_t *p, int action)
         kad_saxpy(q->d[axis] * d1, 1.0f, &p->g[(i * p->d[axis] + k) * d1], &q->g[i * q->d[axis] * d1]);
         k += q->d[axis];
       }
-  }
-  return 0;
-}
-
-int kad_op_reshape(kad_node_t *p, int action)
-{
-  kad_node_t *q = p->child[0];
-
-  if (action == KAD_SYNC_DIM) {
-    if (p->ptr) {
-      int32_t *aux = (int32_t*)p->ptr;
-      int i, len = 1, n_missing = 0;
-      p->n_d = p->ptr_size / 4;
-      for (i = 0; i < p->n_d; ++i) p->d[i] = aux[i];
-      for (i = 0; i < p->n_d; ++i)
-        if (p->d[i] <= 0) ++n_missing;
-        else len *= p->d[i];
-      if (n_missing == 0 && len != kad_len(q)) return -1;
-      if (n_missing > 1) { 
-        for (i = 0; i < p->n_d; ++i)
-          if (p->d[i] <= 0 && i < q->n_d) {
-            p->d[i] = q->d[i], len *= p->d[i];
-            if (--n_missing == 1) break;
-          }
-        if (n_missing > 1) return -1;
-      }
-      if (n_missing == 1) { 
-        if (kad_len(q) % len != 0) return -1;
-        for (i = 0; i < p->n_d; ++i)
-          if (p->d[i] <= 0) p->d[i] = kad_len(q) / len;
-      }
-    } else kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    memcpy(p->x, q->x, kad_len(p) * sizeof(float));
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    kad_saxpy(kad_len(p), 1.0f, p->g, q->g);
-  }
-  return 0;
-}
-
-int kad_op_reverse(kad_node_t *p, int action)
-{
-  kad_node_t *q = p->child[0];
-  int axis, i, j, n, d0, d1;
-
-  axis = p->ptr? *(int32_t*)p->ptr : 0;
-  if (axis < 0) axis += q->n_d;
-  assert(axis >= 0 && axis < q->n_d);
-  for (i = 0, d0 = 1; i < axis; ++i) d0 *= q->d[i];
-  n = q->d[axis];
-  for (i = axis + 1, d1 = 1; i < q->n_d; ++i) d1 *= q->d[i];
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < d0; ++i)
-      for (j = 0; j < n; ++j)
-        memcpy(&p->x[(i * n + n - 1 - j) * d1], &q->x[(i * n + j) * d1], d1 * sizeof(float));
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < d0; ++i)
-      for (j = 0; j < n; ++j)
-        kad_saxpy(d1, 1.0f, &p->g[(i * n + n - 1 - j) * d1], &q->g[(i * n + j) * d1]);
-  }
-  return 0;
-}
-
-int kad_op_mse(kad_node_t *p, int action)
-{
-  kad_node_t *y1 = p->child[0]; 
-  kad_node_t *y0 = p->child[1]; 
-  int i, n;
-
-  n = kad_len(y0);
-  if (action == KAD_SYNC_DIM) {
-    if (n != kad_len(y1)) return -1;
-    p->n_d = 0;
-  } else if (action == KAD_FORWARD) {
-    double cost = 0.0;
-    for (i = 0; i < n; ++i)
-      cost += (y1->x[i] - y0->x[i]) * (y1->x[i] - y0->x[i]);
-    p->x[0] = (float)(cost / n);
-  } else if (action == KAD_BACKWARD && kad_is_back(y1)) {
-    float t = 2.0f * p->g[0] / n;
-    for (i = 0; i < n; ++i)
-      y1->g[i] += t * (y1->x[i] - y0->x[i]);
-  }
-  return 0;
-}
-
-int kad_op_ce_bin(kad_node_t *p, int action)
-{
-  static const float tiny = 1e-9f;
-  kad_node_t *y1 = p->child[0]; 
-  kad_node_t *y0 = p->child[1]; 
-  int i, n;
-
-  n = kad_len(y0);
-  if (action == KAD_SYNC_DIM) {
-    if (n != kad_len(y1)) return -1;
-    p->n_d = 0;
-  } else if (action == KAD_FORWARD) {
-    double cost = 0.0;
-    for (i = 0; i < n; ++i) {
-      if (y0->x[i] > 0.0f)
-        cost += y0->x[i] * log(y0->x[i] / (y1->x[i] > tiny? y1->x[i] : tiny));
-      if (1.0f - y0->x[i] > 0.0f)
-        cost += (1.0f - y0->x[i]) * log((1.0f - y0->x[i]) / (1.0f - y1->x[i] > tiny? 1.0f - y1->x[i] : tiny));
-    }
-    p->x[0] = (float)(cost / n);
-  } else if (action == KAD_BACKWARD && kad_is_back(y1)) {
-    float t = p->g[0] / n;
-    for (i = 0; i < n; ++i) {
-      if (y0->x[i] > 0.0f)
-        y1->g[i] -= t * y0->x[i] / (y1->x[i] > tiny? y1->x[i] : tiny);
-      if (1.0f - y0->x[i] > 0.0f)
-        y1->g[i] += t * (1.0f - y0->x[i]) / (1.0f - y1->x[i] > tiny? 1.0f - y1->x[i] : tiny);
-    }
-  }
-  return 0;
-}
-
-int kad_op_ce_bin_neg(kad_node_t *p, int action)
-{
-  static const float tiny = 1e-9f;
-  kad_node_t *y1 = p->child[0]; 
-  kad_node_t *y0 = p->child[1]; 
-  int i, n;
-
-  n = kad_len(y0);
-  if (action == KAD_SYNC_DIM) {
-    if (n != kad_len(y1)) return -1;
-    p->n_d = 0;
-  } else if (action == KAD_FORWARD) {
-    double cost = 0.0;
-    for (i = 0; i < n; ++i) {
-      if (1.0f + y0->x[i] > 0.0f)
-        cost += .5f * (1.0f + y0->x[i]) * log((1.0f + y0->x[i]) / (1.0f + y1->x[i] > tiny? 1.0f + y1->x[i] : tiny));
-      if (1.0f - y0->x[i] > 0.0f)
-        cost += .5f * (1.0f - y0->x[i]) * log((1.0f - y0->x[i]) / (1.0f - y1->x[i] > tiny? 1.0f - y1->x[i] : tiny));
-    }
-    p->x[0] = (float)(cost / n);
-  } else if (action == KAD_BACKWARD && kad_is_back(y1)) {
-    float t = p->g[0] / n;
-    for (i = 0; i < n; ++i) {
-      if (1.0f + y0->x[i] > 0.0f)
-        y1->g[i] -= .5f * t * (1.0f + y0->x[i]) / (1.0f + y1->x[i] > tiny? 1.0f + y1->x[i] : tiny);
-      if (1.0f - y0->x[i] > 0.0f)
-        y1->g[i] += .5f * t * (1.0f - y0->x[i]) / (1.0f - y1->x[i] > tiny? 1.0f - y1->x[i] : tiny);
-    }
   }
   return 0;
 }
@@ -2781,40 +1422,6 @@ int kad_op_tanh(kad_node_t *p, int action)
   return 0;
 }
 
-int kad_op_relu(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < n; ++i)
-      p->x[i] = q->x[i] > 0.0f? q->x[i] : 0.0f;
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < n; ++i)
-      if (q->x[i] > 0.0f)
-        q->g[i] += p->g[i];
-  }
-  return 0;
-}
-
-int kad_op_sin(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    for (i = 0; i < n; ++i) p->x[i] = sinf(q->x[i]);
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    for (i = 0; i < n; ++i)
-      q->g[i] += p->g[i] * cosf(q->x[i]);
-  }
-  return 0;
-}
-
 int kad_op_softmax(kad_node_t *p, int action)
 {
   int i, j, n1, d0;
@@ -2874,117 +1481,6 @@ int kad_op_avg(kad_node_t *p, int action)
   return 0;
 }
 
-int kad_op_max(kad_node_t *p, int action)
-{
-  int i, n;
-  kad_node_t *q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    int *max_j;
-    for (i = 1; i < p->n_child; ++i)
-      if (kad_len(p->child[i]) != n) return -1;
-    kad_copy_dim1(p, q);
-    max_j = (int*)calloc(n, sizeof(int));
-    p->gtmp = max_j;
-  } else if (action == KAD_FORWARD) {
-    int j, *max_j = (int*)p->gtmp;
-    memset(max_j, 0, n * sizeof(int));
-    memcpy(p->x, q->x, n * sizeof(float));
-    for (j = 1; j < p->n_child; ++j)
-      for (i = 0, q = p->child[j]; i < n; ++i)
-        if (q->x[i] > p->x[i]) p->x[i] = q->x[i], max_j[i] = j;
-  } else if (action == KAD_BACKWARD) {
-    int *max_j = (int*)p->gtmp;
-    for (i = 0; i < n; ++i)
-      p->child[max_j[i]]->g[i] += p->g[i];
-  }
-  return 0;
-}
-
-int kad_op_stack(kad_node_t *p, int action) 
-{
-  int i, n, axis = 0;
-  kad_node_t *q;
-
-  assert(p->n_child > 0);
-  q = p->child[0];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    for (i = 1; i < p->n_child; ++i)
-      if (kad_len(p->child[i]) != n) return -1;
-    p->n_d = q->n_d + 1;
-    for (i = 0; i < axis; ++i) p->d[i] = q->d[i];
-    p->d[axis] = p->n_child;
-    for (; i < q->n_d; ++i) p->d[i+1] = q->d[i];
-  } else if (action == KAD_FORWARD) { 
-    for (i = 0; i < p->n_child; ++i)
-      memcpy(&p->x[i * n], p->child[i]->x, n * sizeof(float));
-  } else if (action == KAD_BACKWARD) {
-    for (i = 0; i < p->n_child; ++i)
-      if (kad_is_back(p->child[i]))
-        kad_saxpy(n, 1.0f, &p->g[i * n], p->child[i]->g);
-  }
-  return 0;
-}
-
-int kad_op_select(kad_node_t *p, int action)
-{
-  kad_node_t *q;
-  int i, n, which;
-
-  which = *(int32_t*)p->ptr;
-  if (which < 0) which += p->n_child;
-  assert(which >= 0 && which < p->n_child);
-  q = p->child[which];
-  n = kad_len(q);
-  if (action == KAD_SYNC_DIM) {
-    for (i = 0; i < p->n_child; ++i)
-      if (p->child[i]->n_d != q->n_d || kad_len(p->child[i]) != n)
-        break;
-    if (i < p->n_child) return -1;
-    kad_copy_dim1(p, q);
-  } else if (action == KAD_FORWARD) {
-    memcpy(p->x, q->x, n * sizeof(float));
-  } else if (action == KAD_BACKWARD && kad_is_back(q)) {
-    kad_saxpy(n, 1.0f, p->g, q->g);
-  }
-  return 0;
-}
-
-void conv_rot180(int d0, int d1, float *x) 
-{
-  int i, j;
-  for (i = 0; i < d0; ++i) {
-    float tmp, *xi = &x[i * d1];
-    for (j = 0; j < d1>>1; ++j)
-      tmp = xi[j], xi[j] = xi[d1-1-j], xi[d1-1-j] = tmp; 
-  }
-}
-
-void conv2d_move_1to3(int d[4], const float *x, float *y) 
-{
-  int i, j, k, l;
-  for (i = 0; i < d[0]; ++i)
-    for (j = 0; j < d[1]; ++j)
-      for (k = 0; k < d[2]; ++k) {
-        int ik = (i * d[2] + k) * d[3], ijk = ((i * d[1] + j) * d[2] + k) * d[3];
-        for (l = 0; l < d[3]; ++l)
-          y[(ik + l) * d[1] + j] = x[ijk + l];
-      }
-}
-
-void conv2d_add_3to1(int d[4], const float *y, float *x) 
-{
-  int i, j, k, l;
-  for (i = 0; i < d[0]; ++i)
-    for (j = 0; j < d[1]; ++j)
-      for (k = 0; k < d[2]; ++k) {
-        int ik = (i * d[2] + k) * d[3], ijk = ((i * d[1] + j) * d[2] + k) * d[3];
-        for (l = 0; l < d[3]; ++l)
-          x[ijk + l] += y[(ik + l) * d[1] + j];
-      }
-}
-
 #define conv_out_size(in_size, aux) (((in_size) - (aux)->kernel_size + (aux)->pad[0] + (aux)->pad[1]) / (aux)->stride + 1)
 
 #define process_row_for(_xx, _ww, _yy, _wn, _pn, _stride, _pad, _t) do { \
@@ -3021,375 +1517,44 @@ void conv2d_add_3to1(int d[4], const float *y, float *x)
   } else for (l = 0; l < _wn; ++l) _ww[l] += kad_sdot(_pn, _yy, &_xx[l - _pad]); \
 } while (0)
 
-int kad_op_conv2d(kad_node_t *p, int action) 
-{
-#define conv2d_loop1(_x, _w, _y, _tmp, _row_func) do {  \
-    int n, c1, c0, i, k, ii; \
-    for (n = 0; n < q->d[0]; ++n)  \
-      for (c1 = 0; c1 < w->d[0]; ++c1)  \
-        for (c0 = 0; c0 < w->d[1]; ++c0)  \
-          for (k = 0; k < w->d[2]; ++k) {  \
-            float *_ww = &(_w)[((c1 * w->d[1] + c0) * w->d[2] + k) * w->d[3]]; \
-            for (i = 0, ii = k - aux[0].pad[0]; i < p->d[2] && ii >= 0 && ii < q->d[2]; ++i, ii += aux[0].stride) {  \
-              float *_xx = &(_x)[((n * q->d[1] + c0) * q->d[2] + ii) * q->d[3]]; \
-              float *_yy = &(_y)[((n * p->d[1] + c1) * p->d[2] + i)  * p->d[3]]; \
-              if (x_padded) { \
-                memcpy(x_padded + aux[1].pad[0], _xx, q->d[3] * sizeof(float)); \
-                _xx = x_padded + aux[1].pad[0]; \
-              } \
-              _row_func(_xx, _ww, _yy, w->d[3], p->d[3], aux[1].stride, aux[1].pad[0], (_tmp)); \
-            }  \
-          }  \
-  } while (0)
-
-#define conv2d_loop2(_x, _w, _y, _code) do {  \
-    int n, c1, i, j, k, ii, j_skip = aux[1].stride * q->d[1], m = w->d[3] * w->d[1]; \
-    for (n = 0; n < q->d[0]; ++n)  \
-      for (c1 = 0; c1 < w->d[0]; ++c1)  \
-        for (k = 0; k < w->d[2]; ++k) {  \
-          float *_ww = &(_w)[(c1 * w->d[2] + k) * m]; \
-          for (i = 0, ii = k - aux[0].pad[0]; i < p->d[2] && ii >= 0 && ii < q->d[2]; ++i, ii += aux[0].stride) {  \
-            float *_xx = &(_x)[(n * q->d[2] + ii) * q->d[3] * q->d[1]]; \
-            float *_yy = &(_y)[((n * p->d[1] + c1) * p->d[2] + i) * p->d[3]]; \
-            if (x_padded) { \
-              memcpy(x_padded + aux[1].pad[0] * q->d[1], _xx, q->d[3] * q->d[1] * sizeof(float)); \
-              _xx = x_padded; \
-            } \
-            for (j = 0; j < p->d[3]; ++j, _xx += j_skip, ++_yy) _code;  \
-          }  \
-        }  \
-  } while (0)
-
-  conv_conf_t *aux = (conv_conf_t*)p->ptr;
-  kad_node_t *q = p->child[0], *w = p->child[1];
-  float *t = 0, *q1 = 0, *w1 = 0, *x_padded = 0;
-  int algo_switch = 0;
-
-  if (action == KAD_FORWARD || action == KAD_BACKWARD) { 
-    if (w->d[3] * w->d[1] < 16) {
-      t = (float*)malloc(p->d[3] * sizeof(float));
-      x_padded = aux[1].pad[0] + aux[1].pad[1] > 0? (float*)calloc(q->d[3] + aux[1].pad[0] + aux[1].pad[1], sizeof(float)) : 0;
-    } else {
-      q1 = (float*)malloc(kad_len(q) * sizeof(float));
-      w1 = (float*)malloc(kad_len(w) * sizeof(float));
-      x_padded = aux[1].pad[0] + aux[1].pad[1] > 0? (float*)calloc((q->d[3] + aux[1].pad[0] + aux[1].pad[1]) * q->d[1], sizeof(float)) : 0;
-      algo_switch = 1;
-    }
-  }
-  if (action == KAD_SYNC_DIM) {
-    if (q->n_d != 4 || w->n_d != 4) return -1;
-    if (q->d[1] != w->d[1]) return -1; 
-    p->n_d = 4;
-    p->d[0] = q->d[0], p->d[1] = w->d[0], p->d[2] = conv_out_size(q->d[2], &aux[0]), p->d[3] = conv_out_size(q->d[3], &aux[1]);
-  } else if (action == KAD_FORWARD) {
-    conv_rot180(w->d[0] * w->d[1], w->d[2] * w->d[3], w->x);
-    memset(p->x, 0, kad_len(p) * sizeof(float));
-    if (!algo_switch) { 
-      conv2d_loop1(q->x, w->x, p->x, t, process_row_for);
-    } else { 
-      conv2d_move_1to3(q->d, q->x, q1);
-      conv2d_move_1to3(w->d, w->x, w1);
-      conv2d_loop2(q1, w1, p->x, (*_yy += kad_sdot(m, _ww, _xx)));
-    }
-    conv_rot180(w->d[0] * w->d[1], w->d[2] * w->d[3], w->x);
-  } else if (action == KAD_BACKWARD) {
-    if (kad_is_back(p->child[0])) { 
-      conv_rot180(w->d[0] * w->d[1], w->d[2] * w->d[3], w->x);
-      if (!algo_switch) {
-        conv2d_loop1(q->g, w->x, p->g, t, process_row_back_x);
-      } else {
-        memset(q1, 0, kad_len(q) * sizeof(float));
-        conv2d_move_1to3(w->d, w->x, w1);
-        conv2d_loop2(q1, w1, p->g, kad_saxpy(m, *_yy, _ww, _xx));
-        conv2d_add_3to1(q->d, q1, q->g);
-      }
-      conv_rot180(w->d[0] * w->d[1], w->d[2] * w->d[3], w->x);
-    }
-    if (kad_is_back(p->child[1])) { 
-      conv_rot180(w->d[0] * w->d[1], w->d[2] * w->d[3], w->g);
-      if (!algo_switch) {
-        conv2d_loop1(q->x, w->g, p->g, t, process_row_back_w);
-      } else {
-        conv2d_move_1to3(q->d, q->x, q1);
-        memset(w1, 0, kad_len(w) * sizeof(float));
-        conv2d_loop2(q1, w1, p->g, kad_saxpy(m, *_yy, _xx, _ww));
-        conv2d_add_3to1(w->d, w1, w->g);
-      }
-      conv_rot180(w->d[0] * w->d[1], w->d[2] * w->d[3], w->g);
-    }
-  }
-  free(t); free(q1); free(w1); free(x_padded);
-  return 0;
-}
-
-int kad_op_max2d(kad_node_t *p, int action)
-{
-  conv_conf_t *aux = (conv_conf_t*)p->ptr;
-  kad_node_t *q = p->child[0];
-  if (action == KAD_SYNC_DIM) {
-    if (q->n_d != 4) return -1;
-    p->n_d = 4;
-    p->d[0] = q->d[0], p->d[1] = q->d[1], p->d[2] = conv_out_size(q->d[2], &aux[0]), p->d[3] = conv_out_size(q->d[3], &aux[1]);
-  } else if (action == KAD_ALLOC) {
-    p->gtmp = realloc(p->gtmp, kad_len(p) * sizeof(int));
-  } else if (action == KAD_FORWARD) {
-    int rest = 1, len, t, i;
-    int *f = (int*)p->gtmp;
-    len = kad_len(p);
-    for (i = 0; i < len; ++i) p->x[i] = -FLT_MAX;
-    for (i = 0; i < p->n_d - 2; ++i) rest *= p->d[i];
-    for (t = 0; t < rest; ++t) {
-      int i, j, k, l, p_row = p->d[p->n_d - 2], p_col = p->d[p->n_d - 1];
-      for (i = 0; i < p_row; ++i) {
-        int u = (t * p_row + i) * p_col;
-        for (k = 0; k < aux[0].kernel_size; ++k) {
-          int v, v0, v_end, ii = i * aux[0].stride + k - aux[0].pad[0];
-          if (ii < 0 || ii >= q->d[p->n_d - 2]) continue;
-          v0 = (t * q->d[p->n_d - 2] + ii) * q->d[p->n_d - 1];
-          v_end = v0 + q->d[p->n_d - 1];
-          for (l = 0; l < aux[1].kernel_size; ++l)
-            for (j = 0, v = v0 + (l > aux[1].pad[0]? l - aux[1].pad[0] : 0); j < p_col && v < v_end; ++j, v += aux[1].stride)
-              if (p->x[u + j] < q->x[v])
-                p->x[u + j] = q->x[v], f[u + j] = v;
-        } 
-      } 
-    }
-  } else if (action == KAD_BACKWARD) {
-    int i, len, *f = (int*)p->gtmp;
-    len = kad_len(p);
-    for (i = 0; i < len; ++i) q->g[f[i]] += p->g[i];
-  }
-  return 0;
-}
-
-void conv1d_move_1to2(int d[3], const float *x, float *y)
-{
-  int i, j, k;
-  for (k = 0; k < d[0]; ++k)
-    for (j = 0; j < d[1]; ++j)
-      for (i = 0; i < d[2]; ++i)
-        y[(k * d[2] + i) * d[1] + j] = x[(k * d[1] + j) * d[2] + i];
-}
-
-void conv1d_add_2to1(int d[3], const float *y, float *x)
-{
-  int i, j, k;
-  for (k = 0; k < d[0]; ++k)
-    for (j = 0; j < d[1]; ++j)
-      for (i = 0; i < d[2]; ++i)
-        x[(k * d[1] + j) * d[2] + i] += y[(k * d[2] + i) * d[1] + j];
-}
-
-int kad_op_conv1d(kad_node_t *p, int action) 
-{
-#define conv1d_loop1(_x, _w, _y, _tmp, _row_func) do {  \
-    int n, c1, c0; \
-    for (n = 0; n < q->d[0]; ++n)  \
-      for (c1 = 0; c1 < w->d[0]; ++c1)  \
-        for (c0 = 0; c0 < w->d[1]; ++c0) {  \
-          float *_ww = &(_w)[(c1 * w->d[1] + c0) * w->d[2]]; \
-          float *_xx = &(_x)[(n  * q->d[1] + c0) * q->d[2]]; \
-          float *_yy = &(_y)[(n  * p->d[1] + c1) * p->d[2]]; \
-          if (x_padded) { \
-            memcpy(x_padded + aux->pad[0], _xx, q->d[2] * sizeof(float)); \
-            _xx = x_padded + aux->pad[0]; \
-          } \
-          _row_func(_xx, _ww, _yy, w->d[2], p->d[2], aux->stride, aux->pad[0], (_tmp)); \
-        }  \
-  } while (0)
-
-#define conv1d_loop2(_x, _w, _y, _code) do {  \
-    int n, c1, j, j_skip = aux->stride * q->d[1], m = w->d[2] * w->d[1]; \
-    for (n = 0; n < q->d[0]; ++n)  \
-      for (c1 = 0; c1 < w->d[0]; ++c1) {  \
-        float *_ww = &(_w)[c1 * m]; \
-        float *_xx = &(_x)[n * q->d[1] * q->d[2]]; \
-        float *_yy = &(_y)[(n * p->d[1] + c1) * p->d[2]]; \
-        if (x_padded) { \
-          memcpy(x_padded + aux->pad[0] * q->d[1], _xx, q->d[2] * q->d[1] * sizeof(float)); \
-          _xx = x_padded; \
-        } \
-        for (j = 0; j < p->d[2]; ++j, _xx += j_skip, ++_yy) _code; \
-      }  \
-  } while (0)
-
-  conv_conf_t *aux = (conv_conf_t*)p->ptr;
-  kad_node_t *q = p->child[0], *w = p->child[1];
-  float *t = 0, *q1 = 0, *w1 = 0, *x_padded = 0;
-  int algo_switch = 0;
-
-  if (action == KAD_FORWARD || action == KAD_BACKWARD) { 
-    if (w->d[2] * w->d[1] < 32) {
-      t = (float*)malloc(p->d[2] * sizeof(float));
-      x_padded = aux->pad[0] + aux->pad[1] > 0? (float*)calloc(q->d[2] + aux->pad[0] + aux->pad[1], sizeof(float)) : 0;
-    } else {
-      q1 = (float*)malloc(kad_len(q) * sizeof(float));
-      w1 = (float*)malloc(kad_len(w) * sizeof(float));
-      x_padded = aux->pad[0] + aux->pad[1] > 0? (float*)calloc((q->d[2] + aux->pad[0] + aux->pad[1]) * q->d[1], sizeof(float)) : 0;
-      algo_switch = 1;
-    }
-  }
-  if (action == KAD_SYNC_DIM) {
-    if (q->n_d != 3 || w->n_d != 3) return -1;
-    if (q->d[1] != w->d[1]) return -1; 
-    p->n_d = 3;
-    p->d[0] = q->d[0], p->d[1] = w->d[0], p->d[2] = conv_out_size(q->d[2], aux);
-  } else if (action == KAD_FORWARD) {
-    conv_rot180(w->d[0] * w->d[1], w->d[2], w->x);
-    memset(p->x, 0, kad_len(p) * sizeof(float));
-    if (!algo_switch) { 
-      conv1d_loop1(q->x, w->x, p->x, t, process_row_for);
-    } else { 
-      conv1d_move_1to2(q->d, q->x, q1);
-      conv1d_move_1to2(w->d, w->x, w1);
-      conv1d_loop2(q1, w1, p->x, (*_yy += kad_sdot(m, _ww, _xx)));
-    }
-    conv_rot180(w->d[0] * w->d[1], w->d[2], w->x);
-  } else if (action == KAD_BACKWARD) {
-    if (kad_is_back(p->child[0])) { 
-      conv_rot180(w->d[0] * w->d[1], w->d[2], w->x);
-      if (!algo_switch) {
-        conv1d_loop1(q->g, w->x, p->g, t, process_row_back_x);
-      } else {
-        memset(q1, 0, kad_len(q) * sizeof(float));
-        conv1d_move_1to2(w->d, w->x, w1);
-        conv1d_loop2(q1, w1, p->g, kad_saxpy(m, *_yy, _ww, _xx));
-        conv1d_add_2to1(q->d, q1, q->g);
-      }
-      conv_rot180(w->d[0] * w->d[1], w->d[2], w->x);
-    }
-    if (kad_is_back(p->child[1])) { 
-      conv_rot180(w->d[0] * w->d[1], w->d[2], w->g);
-      if (!algo_switch) {
-        conv1d_loop1(q->x, w->g, p->g, t, process_row_back_w);
-      } else {
-        conv1d_move_1to2(q->d, q->x, q1);
-        memset(w1, 0, kad_len(w) * sizeof(float));
-        conv1d_loop2(q1, w1, p->g, kad_saxpy(m, *_yy, _xx, _ww));
-        conv1d_add_2to1(w->d, w1, w->g);
-      }
-      conv_rot180(w->d[0] * w->d[1], w->d[2], w->g);
-    }
-  }
-  free(t); free(q1); free(w1); free(x_padded);
-  return 0;
-}
-
-int kad_op_max1d(kad_node_t *p, int action)
-{
-  conv_conf_t *aux = (conv_conf_t*)p->ptr;
-  kad_node_t *q = p->child[0];
-  if (action == KAD_SYNC_DIM) {
-    if (q->n_d != 3) return -1;
-    p->n_d = 3;
-    p->d[0] = q->d[0], p->d[1] = q->d[1], p->d[2] = conv_out_size(q->d[2], aux);
-  } else if (action == KAD_ALLOC) {
-    p->gtmp = realloc(p->gtmp, kad_len(p) * sizeof(int));
-  } else if (action == KAD_FORWARD) {
-    int rest = 1, len, t, i;
-    int *f = (int*)p->gtmp;
-    len = kad_len(p);
-    for (i = 0; i < len; ++i) p->x[i] = -FLT_MAX;
-    for (i = 0; i < p->n_d - 1; ++i) rest *= p->d[i];
-    for (t = 0; t < rest; ++t) {
-      int j, l, p_width = p->d[p->n_d - 1];
-      int u = t * p_width, v, v0 = t * q->d[p->n_d - 1], v_end = v0 + q->d[p->n_d - 1];
-      for (l = 0; l < aux->kernel_size; ++l)
-        for (j = 0, v = v0 + (l > aux->pad[0]? l - aux->pad[0] : 0); j < p_width && v < v_end; ++j, v += aux->stride)
-          if (p->x[u + j] < q->x[v])
-            p->x[u + j] = q->x[v], f[u + j] = v;
-    }
-  } else if (action == KAD_BACKWARD) {
-    int i, len, *f = (int*)p->gtmp;
-    len = kad_len(p);
-    for (i = 0; i < len; ++i) q->g[f[i]] += p->g[i];
-  }
-  return 0;
-}
-
-int kad_op_avg1d(kad_node_t *p, int action)
-{
-  conv_conf_t *aux = (conv_conf_t*)p->ptr;
-  kad_node_t *q = p->child[0];
-  if (action == KAD_SYNC_DIM) {
-    if (q->n_d != 3) return -1;
-    p->n_d = 3;
-    p->d[0] = q->d[0], p->d[1] = q->d[1], p->d[2] = conv_out_size(q->d[2], aux);
-  } else if (action == KAD_ALLOC) {
-    p->gtmp = realloc(p->gtmp, kad_len(p) * sizeof(int));
-  } else if (action == KAD_FORWARD) {
-    int rest = 1, len, t, i;
-    int *f = (int*)p->gtmp;
-    len = kad_len(p);
-    for (i = 0; i < len; ++i) p->x[i] = 0.0f, f[i] = 0;
-    for (i = 0; i < p->n_d - 1; ++i) rest *= p->d[i];
-    for (t = 0; t < rest; ++t) {
-      int j, l, p_width = p->d[p->n_d - 1];
-      int u = t * p_width, v, v0 = t * q->d[p->n_d - 1], v_end = v0 + q->d[p->n_d - 1];
-      for (l = 0; l < aux->kernel_size; ++l)
-        for (j = 0, v = v0 + (l > aux->pad[0]? l - aux->pad[0] : 0); j < p_width && v < v_end; ++j, v += aux->stride)
-          p->x[u + j] += q->x[v], ++f[u + j];
-    }
-    for (i = 0; i < len; ++i) p->x[i] /= f[i];
-  } else if (action == KAD_BACKWARD) {
-    int rest = 1, t, i;
-    int *f = (int*)p->gtmp;
-    for (i = 0; i < p->n_d - 1; ++i) rest *= p->d[i];
-    for (t = 0; t < rest; ++t) {
-      int j, l, p_width = p->d[p->n_d - 1];
-      int u = t * p_width, v, v0 = t * q->d[p->n_d - 1], v_end = v0 + q->d[p->n_d - 1];
-      for (l = 0; l < aux->kernel_size; ++l)
-        for (j = 0, v = v0 + (l > aux->pad[0]? l - aux->pad[0] : 0); j < p_width && v < v_end; ++j, v += aux->stride)
-          q->g[v] += p->g[u + j] / f[u + j];
-    }
-  }
-  return 0;
-}
-
 kad_op_f kad_op_list[KAD_MAX_OP] = {
   0,
   kad_op_add,        
   kad_op_mul,        
   kad_op_cmul,       
-  kad_op_ce_bin_neg, 
-  kad_op_square,     
+  0, 
+  0,     
   kad_op_sigm,       
   kad_op_tanh,       
-  kad_op_relu,       
-  kad_op_matmul,     
+  0,       
+  0,     
   kad_op_avg,        
   kad_op_1minus,     
-  kad_op_select,     
+  0,     
   kad_op_ce_multi,   
   kad_op_softmax,    
-  kad_op_dropout,    
-  kad_op_conv2d,     
-  kad_op_max2d,      
-  kad_op_conv1d,     
-  kad_op_max1d,      
-  kad_op_slice,      
-  kad_op_max,        
-  kad_op_ce_bin,     
-  kad_op_sub,        
-  kad_op_sample_normal,  
-  kad_op_reduce_sum,     
-  kad_op_reduce_mean,    
-  kad_op_log,        
-  kad_op_avg1d,      
-  kad_op_mse,        
-  kad_op_reshape,    
+  0,    
+  0,     
+  0,      
+  0,     
+  0,      
+  0,      
+  0,        
+  0,     
+  0,        
+  0,  
+  0,     
+  0,    
+  0,        
+  0,      
+  0,        
+  0,    
   kad_op_concat,     
   kad_op_stdnorm,    
-  kad_op_exp,        
-  kad_op_sin,        
-  kad_op_stack,      
-  kad_op_reverse     
-};
-
-char *kad_op_name[KAD_MAX_OP] = {
-  0, "add", "mul", "cmul", "ce_bin_neg", "square", "sigm", "tanh", "relu", "matmul", "avg", "1minus", "select", "ce_multi", "softmax",
-  "dropout", "conv2d", "max2d", "conv1d", "max1d", "slice", "max", "ce_bin", "sub", "sample_normal", "reduce_sum", "reduce_mean", "log",
-  "avg1d", "mse", "reshape", "concat", "stdnorm", "exp", "sin", "stack", "reverse"
+  0,        
+  0,        
+  0,      
+  0     
 };
 
 void kad_trap_fe(void)
@@ -3397,34 +1562,6 @@ void kad_trap_fe(void)
 #ifdef __SSE__
   _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~(_MM_MASK_INVALID | _MM_MASK_DIV_ZERO));
 #endif
-}
-
-void kad_print_graph(FILE *fp, int n, kad_node_t **v)
-{
-  int i, j;
-  for (i = 0; i < n; ++i) v[i]->tmp = i;
-  for (i = 0; i < n; ++i) {
-    kad_node_t *p = v[i];
-    fprintf(fp, "%d\t%x:%x\t%d\t", i, p->flag, p->ext_flag, p->ext_label);
-    if (p->pre) fprintf(fp, "%d\t", p->pre->tmp);
-    else fprintf(fp, ".\t");
-    fputs("[", fp);
-    for (j = 0; j < p->n_d; ++j) {
-      if (j) fputc(',', fp);
-      fprintf(fp, "%d", p->d[j]);
-    }
-    fprintf(fp, "]\t");
-    if (p->n_child) {
-      fprintf(fp, "%s(", kad_op_name[p->op]);
-      for (j = 0; j < p->n_child; ++j) {
-        if (j) fputc(',', fp);
-        fprintf(fp, "$%d", p->child[j]->tmp);
-      }
-      fprintf(fp, ")");
-    } else fprintf(fp, "%s", kad_is_feed(p)? "feed" : kad_is_var(p)? "var" : kad_is_const(p)? "const" : "N/A");
-    fputc('\n', fp);
-  }
-  for (i = 0; i < n; ++i) v[i]->tmp = 0;
 }
 
 void kad_add_delta(int n, kad_node_t **a, float c, float *delta)
@@ -3436,41 +1573,6 @@ void kad_add_delta(int n, kad_node_t **a, float c, float *delta)
       k += kad_len(a[i]);
     }
 }
-
-void kad_check_grad(int n, kad_node_t **a, int from)
-{
-  const float eps = 1e-5f, rel = 1e-7f / eps;
-  int i, k, n_var;
-  float *g0, *delta, f0, f_minus, f_plus, s0, s1, rel_err, p_m_err;
-  n_var = kad_size_var(n, a);
-  g0 = (float*)calloc(n_var, sizeof(float));
-  f0 = *kad_eval_at(n, a, from);
-  kad_grad(n, a, from);
-  for (i = k = 0; i < n; ++i)
-    if (kad_is_var(a[i])) {
-      memcpy(&g0[k], a[i]->g, kad_len(a[i]) * sizeof(float));
-      k += kad_len(a[i]);
-    }
-  delta = (float*)calloc(n_var, sizeof(float));
-  for (k = 0; k < n_var; ++k) delta[k] = (float)kad_drand(0) * eps;
-  kad_add_delta(n, a, 1.0f, delta);
-  f_plus = *kad_eval_at(n, a, from);
-  kad_add_delta(n, a, -2.0f, delta);
-  f_minus = *kad_eval_at(n, a, from);
-  kad_add_delta(n, a, 1.0f, delta);
-  s0 = kad_sdot(n_var, g0, delta);
-  s1 = .5f * (f_plus - f_minus);
-  fprintf(stderr, "Gradient check -- %g <=> %g @ %g -- ", s0/eps, s1/eps, f0);
-  if (fabs(s1) >= rel * eps) {
-    rel_err = fabsf(fabsf(s0) - fabsf(s1)) / (fabsf(s0) + fabsf(s1));
-    p_m_err = fabsf(f_plus + f_minus - 2.0f * f0) / fabsf(f_plus - f_minus);
-    fprintf(stderr, "rel_err:%g p_m_err:%g -- ", rel_err, p_m_err);
-    if (rel_err >= rel && rel_err > p_m_err) fprintf(stderr, "failed\n");
-    else fprintf(stderr, "passed\n");
-  } else fprintf(stderr, "skipped\n");
-  free(delta); free(g0);
-}
-
 
 typedef unsigned int   uint;
 typedef unsigned char  byte;
@@ -3633,21 +1735,19 @@ typedef struct stats_s {
 #define sizeof_array(A)                 (sizeof(A) / sizeof(A[0]))
 
 void Adam(const int n_var, const float alpha, const float beta1, const float beta1t, const float beta2, const float beta2t, const float eps, float *g, float *t, float *m, float *v) {
-#if 1
-
   const float weight_decay = 0.0f; 
   const int decoupled_weight_decay = 1;
-  if (weight_decay != 0.0f) {
-    if (decoupled_weight_decay) {
-      for(int i = 0; i < n_var; i++)
-        t[i] -= alpha * weight_decay * t[i];
+
+  if( weight_decay!=0.0f ) {
+    if( decoupled_weight_decay ) {
+      for(int i = 0; i < n_var; i++) t[i] -= alpha * weight_decay * t[i];
     } else {
-      for(int i = 0; i < n_var; i++)
-        g[i] += weight_decay * t[i];
+      for(int i = 0; i < n_var; i++) g[i] += weight_decay * t[i];
     }
   }
 
-  if(m != NULL) {
+  if( m!=NULL ) {
+    // does it ever get in here?
     for(int i = 0; i < n_var; i++) {
       m[i] = (1.0f - beta1) * g[i] + beta1 * m[i];
 
@@ -3663,19 +1763,6 @@ void Adam(const int n_var, const float alpha, const float beta1, const float bet
       t[i] -= alpha * g[i] / sqrtf(v[i] / (1.0f - beta2t) + eps); 
     }
   }
-#elif 0
-  if(m != NULL) {
-    for(int i = 0; i < n_var; i++) m[i] *= beta1;
-    for(int i = 0; i < n_var; i++) m[i] += (1.0f - beta1) * g[i];
-    for(int i = 0; i < n_var; i++) v[i] *= beta2;
-    for(int i = 0; i < n_var; i++) v[i] += (1.0f - beta2) * g[i] * g[i];
-    for(int i = 0; i < n_var; i++) t[i] -= alpha * (m[i] / (1.0f - beta1t)) / sqrtf(v[i] / (1.0f - beta2t) + eps); 
-  } else {
-    for(int i = 0; i < n_var; i++) v[i] *= beta2;
-    for(int i = 0; i < n_var; i++) v[i] += (1.0f - beta2) * g[i] * g[i];
-    for(int i = 0; i < n_var; i++) t[i] -= alpha * g[i] / sqrtf(v[i] / (1.0f - beta2t) + eps); 
-  }
-#endif
 }
 
 #define KANNCOMPR_RNN_VAR_H0                        (0x0001)
@@ -3721,43 +1808,6 @@ kad_node_t *kanncompr_new_vector(const int n, const int x_init_type, const float
 
 kad_node_t *kanncompr_new_bias(const int n, const int x_init_type, const float x_init_from_to[2]) {
   return kanncompr_new_vector(n, x_init_type, x_init_from_to);
-}
-
-kad_node_t *kanncompr_layer_gru(kad_node_t *in, int n1, uint rnn_flag) {
-  int n0;
-  kad_node_t *t, *r, *z, *w, *u, *b, *s, *h0, *out;
-  kad_node_t *(*cmul)(kad_node_t*, kad_node_t*) = (rnn_flag & KANNCOMPR_RNN_NORM)? kann_cmul_norm : kad_cmul;
-
-  n0 = in->n_d >= 2? kad_len(in) / in->d[0] : kad_len(in);
-  h0 = (rnn_flag & KANNCOMPR_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-  h0->x = (float*)calloc(n1, sizeof(float));
-
-  u = kann_new_leaf(KAD_VAR, 0.0f, 2, n1, n1);
-  b = kann_new_leaf(KAD_VAR, 0.0f, 1, n1);
-  t = cmul(h0, u);
-  w = kann_new_leaf(KAD_VAR, 0.0f, 2, n1, n0);
-  t = kad_add(cmul(in, w), t);
-  z = kad_sigm(kad_add(t, b));
-  if (!(rnn_flag & KANNCOMPR_GRU_MINIMAL_GATED_UNIT)) {
-    
-    u = kann_new_leaf(KAD_VAR, 0.0f, 2, n1, n1);
-    b = kann_new_leaf(KAD_VAR, 0.0f, 1, n1);
-    t = cmul(h0, u);
-    w = kann_new_leaf(KAD_VAR, 0.0f, 2, n1, n0);
-    t = kad_add(cmul(in, w), t);
-    r = kad_sigm(kad_add(t, b));
-  }
-  
-  u = kann_new_leaf(KAD_VAR, 0.0f, 2, n1, n1);
-  b = kann_new_leaf(KAD_VAR, 0.0f, 1, n1);
-  t = cmul(kad_mul(!(rnn_flag & KANNCOMPR_GRU_MINIMAL_GATED_UNIT) ? r : z, h0), u);
-  w = kann_new_leaf(KAD_VAR, 0.0f, 2, n1, n0);
-  t = kad_add(cmul(in, w), t);
-  s = kad_tanh(kad_add(t, b));
-  
-  out = kad_add(kad_mul(kad_1minus(z), s), kad_mul(z, h0));
-  out->pre = h0;
-  return out;
 }
 
 kad_node_t *kanncompr_layer_lstm(kad_node_t *in, int n1, uint rnn_flag, byte bias_init_type[4], float bias_init_from_to[4][2]) {
@@ -3824,68 +1874,6 @@ kad_node_t *kanncompr_layer_lstm(kad_node_t *in, int n1, uint rnn_flag, byte bia
   }
   out->pre = h0;
 
-  return out;
-}
-
-kad_node_t *kanncompr_layer_YamRNN(kad_node_t *in, int n1, int variant, uint rnn_flag) {
-  int n0;
-  kad_node_t *v1, *v2, *w, *u, *b, *h0, *out;
-  kad_node_t *(*cmul)(kad_node_t*, kad_node_t*) = (rnn_flag & KANNCOMPR_RNN_NORM)? kann_cmul_norm : kad_cmul;
-
-  n0 = in->n_d >= 2? kad_len(in) / in->d[0] : kad_len(in);
-  h0 = (rnn_flag & KANNCOMPR_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-  h0->x = (float*)calloc(n1, sizeof(float));
-
-  w = kann_new_weight(n1, n0);
-  u = kann_new_weight(n1, n1);
-  b = kann_new_bias(n1);
-  v1 = kad_sigm(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-  
-  w = kann_new_weight(n1, n0);
-  b = kann_new_vec(n1, 1.0f);
-  v2 = kad_tanh(kad_add(cmul(in, w), b));
-
-  switch(variant) {
-  case 1: { 
-    if (rnn_flag & KANNCOMPR_RNN_NORM) v2 = kann_layer_layernorm(v2);
-    w = kann_new_weight(n1, n0);
-    b = kann_new_vec(n1, 1.0f);
-    u = kann_new_weight(n1, n1);
-    kad_node_t *x = kad_tanh(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-    out = kad_sub(kad_square(x), kad_mul(kad_add(kad_square(v2), h0), v1)); 
-    break;
-  }
-  case 2: { 
-    if (rnn_flag & KANNCOMPR_RNN_NORM) v2 = kann_layer_layernorm(v2);
-    w = kann_new_weight(n1, n0);
-    b = kann_new_vec(n1, 1.0f);
-    u = kann_new_weight(n1, n1);
-    kad_node_t *x = kad_tanh(kad_add(kad_add(cmul(in, w), cmul(h0, u)), b));
-    out = kad_tanh(kad_sub(x, kad_mul(kad_add(v2, h0), v1)));
-    break;
-  }
-  case 3: { 
-    if (rnn_flag & KANNCOMPR_RNN_NORM) v2 = kann_layer_layernorm(v2);
-    kad_node_t *c0 = (rnn_flag & KANNCOMPR_RNN_VAR_H0)? kad_var(0, 0, 2, 1, n1) : kad_const(0, 2, 1, n1);
-    c0->x = (float*)calloc(n1, sizeof(float));
-    w = kann_new_weight(n1, n0);
-    b = kann_new_vec(n1, 1.0f);
-    u = kann_new_weight(n1, n1);
-    kad_node_t *c = kad_tanh(kad_add(kad_add(cmul(in, w), cmul(c0, u)), b));
-    c->pre = c0;
-    if (rnn_flag & KANNCOMPR_RNN_NORM) c = kann_layer_layernorm(c);
-    out = kad_tanh(kad_sub(c, kad_mul(kad_add(c, v2), v1)));
-    break;
-  }
-  case 0: 
-  default: {
-    
-    out = kad_sub(kad_square(kad_1minus(v2)), kad_mul(kad_add(kad_square(v2), h0), v1));
-    break;
-  }
-  }
-
-  out->pre = h0;
   return out;
 }
 
@@ -4201,10 +2189,8 @@ int main(int argc, char** argv) {
   options.symb_list_size          = options.ulen + options.mini_batch_step * (options.mini_batch_size - 1) + 1;
   options.vocab_type              = 0;
 
-  FILE *filein = fopen(argv[2], "rb");
-  if(filein == NULL) exit(2);
-  FILE *fileout = fopen(argv[3], "wb");
-  if(fileout == NULL) exit(3);
+  FILE *filein = fopen(argv[2], "rb");  if( filein==NULL ) exit(2);
+  FILE *fileout = fopen(argv[3], "wb"); if( fileout==NULL) exit(3);
 
   long fileoriglen = 0;
 
@@ -4213,67 +2199,7 @@ int main(int argc, char** argv) {
     fileoriglen = ftell(filein);
     fseek(filein, 0, SEEK_SET);
 
-    fputc('K', fileout);
-    fputc('C', fileout);
-    fputc(VERSION_ID, fileout);
-
-    if(fput_si00(fileout, options.rnn_type             ) ||
-       fput_si00(fileout, options.n_layers             ) ||
-       fput_si00(fileout, options.n_layers_embed_hidden) ||
-       fput_si00(fileout, options.n_layers_embed_output) ||
-       fput_si00(fileout, options.n_neurons            ) ||
-       fput_si00(fileout, options.ulen                 ) ||
-       fput_si00(fileout, options.norm                 ) ||
-       fput_si00(fileout, options.var_h0               ) ||
-       fput_fl  (fileout, options.grad_clip            ) ||
-       fput_fl  (fileout, options.dropout              ) ||
-       fput_fl  (fileout, options.temper               ) ||
-       fput_ui32(fileout, options.seed                 ) ||
-       fput_fl  (fileout, options.alpha1               ) ||
-       fput_fl  (fileout, options.alpha2               ) ||
-       fput_fl  (fileout, options.alpha1d              ) ||
-       fput_fl  (fileout, options.beta1                ) ||
-       fput_fl  (fileout, options.beta1t               ) ||
-       fput_fl  (fileout, options.beta2                ) ||
-       fput_fl  (fileout, options.beta2t               ) ||
-       fput_fl  (fileout, options.eps                  ) ||
-       fput_ui16(fileout, options.mini_batch_freq      ) ||
-       fput_ui16(fileout, options.mini_batch_size      ) ||
-       fput_ui16(fileout, options.mini_batch_step      ) ||
-       fput_si32(fileout, fileoriglen                  ) ||
-       fput_ui08(fileout, options.vocab_type           )
-      )
-      exit(5);
   } else if(argv[1][0] == 'd') {
-    if(fgetc(filein) != 'K' || fgetc(filein) != 'C' || fgetc(filein) != VERSION_ID) exit(4);
-
-    if(fget_si00(filein, &options.rnn_type             ) ||
-       fget_si00(filein, &options.n_layers             ) ||
-       fget_si00(filein, &options.n_layers_embed_hidden) ||
-       fget_si00(filein, &options.n_layers_embed_output) ||
-       fget_si00(filein, &options.n_neurons            ) ||
-       fget_si00(filein, &options.ulen                 ) ||
-       fget_si00(filein, &options.norm                 ) ||
-       fget_si00(filein, &options.var_h0               ) ||
-       fget_fl  (filein, &options.grad_clip            ) ||
-       fget_fl  (filein, &options.dropout              ) ||
-       fget_fl  (filein, &options.temper               ) ||
-       fget_ui32(filein, &options.seed                 ) ||
-       fget_fl  (filein, &options.alpha1               ) ||
-       fget_fl  (filein, &options.alpha2               ) ||
-       fget_fl  (filein, &options.alpha1d              ) ||
-       fget_fl  (filein, &options.beta1                ) ||
-       fget_fl  (filein, &options.beta1t               ) ||
-       fget_fl  (filein, &options.beta2                ) ||
-       fget_fl  (filein, &options.beta2t               ) ||
-       fget_fl  (filein, &options.eps                  ) ||
-       fget_ui16(filein, &options.mini_batch_freq      ) ||
-       fget_ui16(filein, &options.mini_batch_size      ) ||
-       fget_ui16(filein, &options.mini_batch_step      ) ||
-       fget_si32(filein, &fileoriglen                  ) ||
-       fget_ui08(filein, &options.vocab_type           )
-      )
-      exit(5);
   }
 
   kann_srand(options.seed);
@@ -4382,4 +2308,4 @@ int main(int argc, char** argv) {
   fclose(fileout);
 
   return 0;
-}
+}
