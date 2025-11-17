@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Testing kanncompr_..."
+echo "Testing kanncompr..."
 echo
 
 # Clean up previous test files
@@ -9,13 +9,13 @@ rm -f 1 2
 
 # Test 1: Compress g.bat to file "1"
 echo "Step 1: Compressing g.bat to file '1'..."
-./kanncompr_ c g.bat 1
+./kanncompr c g.bat 1
 echo "✓ Compression completed"
 echo
 
 # Test 2: Decompress "1" to file "2"
 echo "Step 2: Decompressing '1' to file '2'..."
-./kanncompr_ d 1 2
+./kanncompr d 1 2
 echo "✓ Decompression completed"
 echo
 
