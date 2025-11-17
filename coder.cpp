@@ -70,7 +70,7 @@ class Sigmoid {
   }
 
   static float FastLogistic(float p) {
-    return (0.5f * (p / (1.0f + abs(p)) + 1.0f));
+    return (0.5f * (p / (1.0f + fabsf(p)) + 1.0f));
   }
 
  private:
