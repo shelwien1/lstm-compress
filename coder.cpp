@@ -9,9 +9,6 @@
 #include <math.h>
 
 // C++ library headers
-#include <algorithm>
-#include <memory>
-#include <numeric>
 #include <vector>
 
 //#define INC_FLEN
@@ -455,7 +452,9 @@ class Lstm {
   NOINLINE
   void SetInput(const std::vector<float>& input) {
     for (unsigned int i = 0; i < layers_.size(); ++i) {
-      std::copy(begin(input), begin(input) + input_size_, begin(layer_input_[epoch_][i]));
+      for (unsigned int j = 0; j < input_size_; ++j) {
+        layer_input_[epoch_][i][j] = input[j];
+      }
     }
   }
 
@@ -502,15 +501,17 @@ class Lstm {
   NOINLINE
   std::vector<float>& Predict(unsigned int input) {
     for (unsigned int i = 0; i < layers_.size(); ++i) {
-      auto start = begin(hidden_) + i * num_cells_;
-      std::copy(start, start + num_cells_, begin(layer_input_[epoch_][i]) +
-          input_size_);
+      unsigned int hidden_offset = i * num_cells_;
+      for (unsigned int j = 0; j < num_cells_; ++j) {
+        layer_input_[epoch_][i][input_size_ + j] = hidden_[hidden_offset + j];
+      }
       layers_[i].ForwardPass(layer_input_[epoch_][i], input, &hidden_, i *
           num_cells_);
       if (i < layers_.size() - 1) {
-        auto start2 = begin(layer_input_[epoch_][i + 1]) + num_cells_ +
-            input_size_;
-        std::copy(start, start + num_cells_, start2);
+        unsigned int dest_offset = num_cells_ + input_size_;
+        for (unsigned int j = 0; j < num_cells_; ++j) {
+          layer_input_[epoch_][i + 1][dest_offset + j] = hidden_[hidden_offset + j];
+        }
       }
     }
     for (unsigned int i = 0; i < output_size_; ++i) {
@@ -559,8 +560,14 @@ class Byte_Model {
 
   std::vector<float>& Predict() {
     auto mid = bot_ + ((top_ - bot_) / 2);
-    float num = std::accumulate(&probs_[mid + 1], &probs_[top_ + 1], 0.0f);
-    float denom = std::accumulate(&probs_[bot_], &probs_[mid + 1], num);
+    float num = 0.0f;
+    for (int i = mid + 1; i <= top_; ++i) {
+      num += probs_[i];
+    }
+    float denom = num;
+    for (int i = bot_; i <= mid; ++i) {
+      denom += probs_[i];
+    }
     ex = bot_;
     float max_prob_val = probs_[bot_];
     for (int i = bot_ + 1; i <= top_; i++) {
@@ -611,11 +618,12 @@ class PPMD : public Byte_Model {
 
   NOINLINE
   PPMD(int order, int memory, char* vocab) : Byte_Model(vocab) {
-    ppmd_model_.reset(new ppmd_Model());
+    ppmd_model_ = new ppmd_Model();
     ppmd_model_->Init(order,memory,1,0);
   }
 
   ~PPMD() {
+    delete ppmd_model_;
   }
 
   NOINLINE
@@ -638,7 +646,7 @@ class PPMD : public Byte_Model {
   }
 
  private:
-  std::unique_ptr<ppmd_Model> ppmd_model_;
+  ppmd_Model* ppmd_model_;
 };
 
 //--- #include "model.hpp"
