@@ -200,7 +200,27 @@ typedef struct {
   volatile int lock;
 } kad_rng_t;
 
-// KadRng class for random number generation
+// RandomNumberGenerator - Modern C++ class replacing opaque void* RNG
+class RandomNumberGenerator {
+private:
+  kad_rng_t rng_;
+
+  static uint64_t splitmix64(uint64_t x);
+  static uint64_t xoroshiro128plus_next(kad_rng_t *r);
+  static void xoroshiro128plus_jump(kad_rng_t *r);
+
+public:
+  RandomNumberGenerator(uint64_t seed = 0);
+  void seed(uint64_t seed);
+  uint64_t nextInt();
+  double nextDouble();
+  double nextGaussian();
+
+  // For legacy compatibility
+  kad_rng_t* raw() { return &rng_; }
+};
+
+// KadRng class for legacy compatibility with static methods
 class KadRng {
 public:
   static void* create();
@@ -208,7 +228,8 @@ public:
   static uint64_t rand(void *d);
   static double drand(void *d);
   static double drand_normal(void *d);
-private:
+
+  // Made public for RandomNumberGenerator to use
   static uint64_t splitmix64(uint64_t x);
   static uint64_t xoroshiro128plus_next(kad_rng_t *r);
   static void xoroshiro128plus_jump(kad_rng_t *r);
@@ -1350,6 +1371,56 @@ uint64_t kad_rand(void *d) { return KadRng::rand(d); }
 double kad_drand(void *d) { return KadRng::drand(d); }
 double kad_drand_normal(void *d) { return KadRng::drand_normal(d); }
 
+// RandomNumberGenerator class implementation - Modern C++ wrapper
+RandomNumberGenerator::RandomNumberGenerator(uint64_t seed) {
+  rng_.n_gset = 0.0;
+  rng_.n_iset = 0;
+  rng_.lock = 0;
+  if (seed == 0) {
+    KadRng::xoroshiro128plus_jump(&kad_rng_dat);
+    rng_.s[0] = kad_rng_dat.s[0];
+    rng_.s[1] = kad_rng_dat.s[1];
+  } else {
+    rng_.s[0] = KadRng::splitmix64(seed);
+    rng_.s[1] = KadRng::splitmix64(rng_.s[0]);
+  }
+}
+
+void RandomNumberGenerator::seed(uint64_t seed) {
+  rng_.n_gset = 0.0;
+  rng_.n_iset = 0;
+  rng_.s[0] = KadRng::splitmix64(seed);
+  rng_.s[1] = KadRng::splitmix64(rng_.s[0]);
+}
+
+uint64_t RandomNumberGenerator::nextInt() {
+  return KadRng::xoroshiro128plus_next(&rng_);
+}
+
+double RandomNumberGenerator::nextDouble() {
+  union { uint64_t i; double d; } u;
+  u.i = 0x3FFULL << 52 | KadRng::xoroshiro128plus_next(&rng_) >> 12;
+  return u.d - 1.0;
+}
+
+double RandomNumberGenerator::nextGaussian() {
+  if (rng_.n_iset == 0) {
+    double fac, rsq, v1, v2;
+    do {
+      v1 = 2.0 * nextDouble() - 1.0;
+      v2 = 2.0 * nextDouble() - 1.0;
+      rsq = v1 * v1 + v2 * v2;
+    } while (rsq >= 1.0 || rsq == 0.0);
+    fac = sqrt(-2.0 * log(rsq) / rsq);
+    rng_.n_gset = v1 * fac;
+    rng_.n_iset = 1;
+    return v2 * fac;
+  } else {
+    rng_.n_iset = 0;
+    return rng_.n_gset;
+  }
+}
+
 void KadGraph::copy_dim1(kad_node_t *dst, const kad_node_t *src)
 {
   dst->n_d = src->n_d;
@@ -1785,148 +1856,357 @@ void kad_add_delta(int n, kad_node_t **a, float c, float *delta)
 const int SCALElog = 15;
 const int SCALE    = 1<<SCALElog;
 
-struct Rangecoder {
-  uint f_DEC; 
-  FILE* f;
-  qword counter;
-  byte get() { counter++; return byte(getc(f)); }
-  void put( byte c ) { counter++; putc(c,f); }
-  void StartEncode( FILE *F ) { f=F; f_DEC=0; rc_Init(); }
-  void FinishEncode( void ) { rc_Quit(); }
-  void StartDecode( FILE *F ) { f=F; f_DEC=1; rc_Init(); }
-  qword Counter() { return counter; }
-
+// RangeCoder class - Modern C++ arithmetic coder with proper encapsulation
+class RangeCoder {
+private:
   static const uint NUM   = 4;
   static const uint sTOP  = 0x01000000U;
   static const uint gTOP  = 0x00010000U;
   static const uint Thres = 0xFF000000U;
 
+  uint f_DEC_{0};
+  FILE* f_{nullptr};
+  qword counter_{0};
+
   union {
     struct {
-      uint  low;
-      uint  Carry;
+      uint  low_;
+      uint  Carry_;
     };
-    qword lowc;
+    qword lowc_;
   };
-  uint  code;
-  uint  FFNum;
-  uint  Cache;
-  qword range;
+  uint  code_{0};
+  uint  FFNum_{0};
+  uint  Cache_{0};
+  qword range_{0};
 
-  uint muldivR( uint a, uint b ) { return (qword(a)*b)/range; }
+  byte get() { counter_++; return byte(getc(f_)); }
+  void put(byte c) { counter_++; putc(c, f_); }
 
-  uint mulRdiv( uint a, uint c ) { return (qword(a)*range)/c; }
+  uint muldivR(uint a, uint b) { return (qword(a)*b)/range_; }
+  uint mulRdiv(uint a, uint c) { return (qword(a)*range_)/c; }
 
-  void rc_Renorm( void ) {
-    while( range<sTOP ) ShiftStuff();
+  void rc_Renorm() {
+    while(range_ < sTOP) ShiftStuff();
   }
 
-  void rc_Process( uint cumFreq, uint freq, uint totFreq ) {
+  void ShiftStuff() {
+    range_ = (range_<<8)+0x00;
+    if(f_DEC_ == 0) ShiftLow(); else ShiftCode();
+  }
 
-    uint tmp  = range-mulRdiv( totFreq-cumFreq, totFreq );
-    uint rnew = range-mulRdiv( totFreq-(cumFreq+freq), totFreq );
+  void ShiftCode() {
+    code_ = (code_<<8)+0x00;
+    uint c = get();
+    FFNum_ += (c==-1);
+    code_ += byte(c);
+  }
 
-    if( f_DEC ) code-=tmp; else lowc+=tmp;
-    range = rnew - tmp;
+  void ShiftLow() {
+    if((low_ < Thres) || Carry_) {
+      if(Cache_ != uint(-1)) put(Cache_ + Carry_);
+      for(; FFNum_ != 0; FFNum_--) put(Carry_ - 1);
+      Cache_ = low_ >> 24;
+      Carry_ = 0;
+    } else FFNum_++;
+    low_ <<= 8;
+  }
+
+  void rc_Init() {
+    low_   = 0;
+    FFNum_ = 0;
+    Carry_ = 0;
+    Cache_ = uint(-1);
+    if(f_DEC_ == 1) {
+      for(int _ = 0; _ < NUM; _++) ShiftCode();
+    }
+    range_ = 1ULL << 32;
+    counter_ = 0;
+  }
+
+  void rc_Quit() {
+    if(f_DEC_ == 0) {
+      uint i, n = NUM;
+
+      qword llow = low_;
+      qword high = llow + range_;
+
+      if((llow |       0xFF) < high) low_ |=       0xFF, n--;
+      if((llow |     0xFFFF) < high) low_ |=     0xFFFF, n--;
+      if((llow |   0xFFFFFF) < high) low_ |=   0xFFFFFF, n--;
+      if((llow | 0xFFFFFFFF) < high) low_ |= 0xFFFFFFFF, n--;
+
+      if((Cache_ != uint(-1)) && ((n != 0) || (Cache_ + Carry_ != 0xFF))) put(Cache_ + Carry_);
+      if((n == 0) && (Carry_ == 0)) FFNum_ = 0;
+      for(i = 0; i < FFNum_; i++) put(0xFF + Carry_);
+      for(i = 0; i < n; i++) put(low_ >> 24), low_ <<= 8;
+    }
+  }
+
+public:
+  RangeCoder() = default;
+
+  void StartEncode(FILE *F) { f_ = F; f_DEC_ = 0; rc_Init(); }
+  void FinishEncode() { rc_Quit(); }
+  void StartDecode(FILE *F) { f_ = F; f_DEC_ = 1; rc_Init(); }
+  qword Counter() const { return counter_; }
+
+  void rc_Process(uint cumFreq, uint freq, uint totFreq) {
+    uint tmp  = range_ - mulRdiv(totFreq - cumFreq, totFreq);
+    uint rnew = range_ - mulRdiv(totFreq - (cumFreq + freq), totFreq);
+
+    if(f_DEC_) code_ -= tmp; else lowc_ += tmp;
+    range_ = rnew - tmp;
 
     rc_Renorm();
   }
 
-  uint rc_GetFreq( uint totFreq ) {
-    return muldivR( code, totFreq );
+  uint rc_GetFreq(uint totFreq) {
+    return muldivR(code_, totFreq);
   }
+};
 
-  void ShiftStuff( void ) {
-    range = (range<<8)+0x00;
-    if( f_DEC==0 ) ShiftLow(); else ShiftCode();
-  }
+// Legacy struct name for backward compatibility
+struct Rangecoder : public RangeCoder {
+  // Inherit everything from RangeCoder
+};
 
-  void ShiftCode( void ) {
-    code  = (code<<8)+0x00;
-    uint c = get();
-    FFNum += (c==-1);
-    code += byte(c);
-  }
-
-  void ShiftLow( void ) {
-    if( (low<Thres) || Carry ) {
-      if( Cache!=-1 ) put( Cache+Carry );
-      for(;FFNum!=0;FFNum--) put( Carry-1 ); 
-      Cache = low>>24;
-      Carry = 0;
-    } else FFNum++;
-    low<<=8;
-  }
-
-  void rc_Init( void ) {
-    low   = 0;
-    FFNum = 0;
-    Carry = 0;
-    Cache = -1;
-    if( f_DEC==1 ) {
-      for(int _=0; _<NUM; _++) ShiftCode();
-    }
-    range = 1ULL<<32;
-    counter = 0;
-  }
-
-  void rc_Quit( void ) {
-    if( f_DEC==0 ) {
-      uint i, n = NUM;
-
-      qword llow=low;
-      qword high=llow+range;
-
-      if( (llow|      0xFF) < high ) low|=      0xFF,n--;
-      if( (llow|    0xFFFF) < high ) low|=    0xFFFF,n--;
-      if( (llow|  0xFFFFFF) < high ) low|=  0xFFFFFF,n--;
-      if( (llow|0xFFFFFFFF) < high ) low|=0xFFFFFFFF,n--;
-
-      if( (Cache!=-1) && ((n!=0) || (Cache+Carry!=0xFF) ) ) put( Cache+Carry );
-      if( (n==0) && (Carry==0) ) FFNum=0; 
-      for( i=0; i<FFNum; i++ ) put( 0xFF+Carry );
-      for( i=0; i<n; i++ ) put( low>>24 ), low<<=8;
-    }
-  }
-
-} rc;
+Rangecoder rc;
 
 // Version constants - replacing macros with constexpr
 constexpr uint8_t VERSION_ID = 0x04;
 constexpr const char* VERSION_DATE = "2024/07/26";
 
 typedef struct kanncompr_s {
-  
+
   kann_t *ann;
-  
+
   int n_char_in, n_char_out;
   int rnn_type;
   int n_layers, n_neurons, ulen;
-  int n_layers_embed_hidden, n_layers_embed_output; 
-  float dropout; 
+  int n_layers_embed_hidden, n_layers_embed_output;
+  float dropout;
   float temper;
   int var_h0, norm;
 
   byte bias_init_type[4];
   float bias_init_from_to[4][4];
-  
+
   uint seed;
   float grad_clip;
-  
+
   kann_t *ua;
-  int n_var; 
+  int n_var;
   float **x, **y, *xp;
   float *m, *v;
-  word mini_batch_freq, mini_batch_freq_cnt, mini_batch_size, mini_batch_step; 
+  word mini_batch_freq, mini_batch_freq_cnt, mini_batch_size, mini_batch_step;
   byte *symb_list;
   int symb_list_ndx, symb_list_size;
 
   float alpha1, alpha2, alpha1d;
-  float beta1, beta1t, beta2, beta2t; 
+  float beta1, beta1t, beta2, beta2t;
   float eps;
 
-  byte vocab_type, *vocab_symb; 
+  byte vocab_type, *vocab_symb;
 } kanncompr_t;
+
+// AdamOptimizer class - Modern C++ encapsulation of optimizer state
+class AdamOptimizer {
+private:
+  float alpha1_, alpha2_, alpha1d_;
+  float beta1_, beta1t_, beta2_, beta2t_;
+  float eps_;
+  float *m_{nullptr};  // First moment
+  float *v_{nullptr};  // Second moment
+  int n_vars_{0};
+  bool owns_memory_{false};
+
+public:
+  // Constructor with parameters
+  AdamOptimizer(float alpha1, float alpha2, float alpha1d,
+                float beta1, float beta1t, float beta2, float beta2t, float eps)
+    : alpha1_(alpha1), alpha2_(alpha2), alpha1d_(alpha1d),
+      beta1_(beta1), beta1t_(beta1t), beta2_(beta2), beta2t_(beta2t), eps_(eps) {}
+
+  // Initialize moment buffers (takes ownership)
+  void initialize(int n_vars, float *m, float *v, bool own = false) {
+    n_vars_ = n_vars;
+    m_ = m;
+    v_ = v;
+    owns_memory_ = own;
+  }
+
+  // Allocate and initialize moment buffers
+  void allocate(int n_vars, bool allocate_m = true) {
+    n_vars_ = n_vars;
+    if (allocate_m && (beta1_ != 0.0 || beta1t_ != 0.0)) {
+      m_ = (float*)calloc(n_vars, sizeof(float));
+    } else {
+      m_ = nullptr;
+    }
+    v_ = (float*)calloc(n_vars, sizeof(float));
+    owns_memory_ = true;
+  }
+
+  // Perform optimization step
+  void step(float *gradients, float *weights) {
+    const float weight_decay = 0.0f;
+    const int decoupled_weight_decay = 1;
+
+    if (weight_decay != 0.0f) {
+      if (decoupled_weight_decay) {
+        for (int i = 0; i < n_vars_; i++)
+          weights[i] -= alpha1_ * weight_decay * weights[i];
+      } else {
+        for (int i = 0; i < n_vars_; i++)
+          gradients[i] += weight_decay * weights[i];
+      }
+    }
+
+    if (m_ != nullptr) {
+      for (int i = 0; i < n_vars_; i++) {
+        m_[i] = (1.0f - beta1_) * gradients[i] + beta1_ * m_[i];
+        v_[i] = (1.0f - beta2_) * gradients[i] * gradients[i] + beta2_ * v_[i];
+        weights[i] -= alpha1_ * (m_[i] / (1.0f - beta1t_)) / sqrtf(v_[i] / (1.0f - beta2t_) + eps_);
+      }
+    } else {
+      for (int i = 0; i < n_vars_; i++) {
+        v_[i] = (1.0f - beta2_) * gradients[i] * gradients[i] + beta2_ * v_[i];
+        weights[i] -= alpha1_ * gradients[i] / sqrtf(v_[i] / (1.0f - beta2t_) + eps_);
+      }
+    }
+
+    // Update learning rate schedule
+    alpha1_ = alpha1_ > alpha2_ ? alpha1_ * alpha1d_ : alpha2_;
+    beta1t_ *= beta1_;
+    beta2t_ *= beta2_;
+  }
+
+  // Getters for updated parameters
+  float alpha1() const { return alpha1_; }
+  float beta1t() const { return beta1t_; }
+  float beta2t() const { return beta2t_; }
+
+  // Setters for updating parameters
+  void setAlpha1(float alpha1) { alpha1_ = alpha1; }
+  void setBeta1t(float beta1t) { beta1t_ = beta1t; }
+  void setBeta2t(float beta2t) { beta2t_ = beta2t; }
+
+  // Get moment pointers
+  float* m() { return m_; }
+  float* v() { return v_; }
+
+  // Cleanup
+  void cleanup() {
+    if (owns_memory_) {
+      if (m_ != nullptr) free(m_);
+      free(v_);
+      owns_memory_ = false;
+    }
+    m_ = nullptr;
+    v_ = nullptr;
+    n_vars_ = 0;
+  }
+
+  ~AdamOptimizer() {
+    cleanup();
+  }
+};
+
+// CompressionCodec class - Modern C++ wrapper for compression state with RAII
+class CompressionCodec {
+private:
+  kann_t *ann_{nullptr};
+  kann_t *ua_{nullptr};
+  int n_char_in_, n_char_out_;
+  int rnn_type_;
+  int n_layers_, n_neurons_, ulen_;
+  int n_layers_embed_hidden_, n_layers_embed_output_;
+  float dropout_;
+  float temper_;
+  int var_h0_, norm_;
+  byte bias_init_type_[4];
+  float bias_init_from_to_[4][4];
+  uint seed_;
+  float grad_clip_;
+  int n_var_{0};
+  float **x_{nullptr};
+  float **y_{nullptr};
+  float *xp_{nullptr};
+  word mini_batch_freq_, mini_batch_freq_cnt_, mini_batch_size_, mini_batch_step_;
+  byte *symb_list_{nullptr};
+  int symb_list_ndx_{0}, symb_list_size_{0};
+  byte vocab_type_{0};
+  byte *vocab_symb_{nullptr};
+
+  AdamOptimizer optimizer_;
+
+public:
+  // Constructor with configuration
+  CompressionCodec(int n_char_in, int n_char_out, int rnn_type,
+                   int n_layers, int n_neurons, int ulen,
+                   int n_layers_embed_hidden, int n_layers_embed_output,
+                   float dropout, float temper, int var_h0, int norm,
+                   const byte bias_init_type[4], const float bias_init_from_to[4][4],
+                   uint seed, float grad_clip,
+                   word mini_batch_freq, word mini_batch_size, word mini_batch_step,
+                   float alpha1, float alpha2, float alpha1d,
+                   float beta1, float beta1t, float beta2, float beta2t, float eps)
+    : n_char_in_(n_char_in), n_char_out_(n_char_out), rnn_type_(rnn_type),
+      n_layers_(n_layers), n_neurons_(n_neurons), ulen_(ulen),
+      n_layers_embed_hidden_(n_layers_embed_hidden), n_layers_embed_output_(n_layers_embed_output),
+      dropout_(dropout), temper_(temper), var_h0_(var_h0), norm_(norm),
+      seed_(seed), grad_clip_(grad_clip),
+      mini_batch_freq_(mini_batch_freq), mini_batch_freq_cnt_(0),
+      mini_batch_size_(mini_batch_size), mini_batch_step_(mini_batch_step),
+      optimizer_(alpha1, alpha2, alpha1d, beta1, beta1t, beta2, beta2t, eps)
+  {
+    memcpy(bias_init_type_, bias_init_type, 4 * sizeof(byte));
+    memcpy(bias_init_from_to_, bias_init_from_to, 4 * 4 * sizeof(float));
+    symb_list_size_ = ulen_ + mini_batch_step_ * (mini_batch_size_ - 1) + 1;
+  }
+
+  // Methods that replace global functions
+  void buildNetwork();  // Replaces ann_structure
+  void initialize();    // Replaces ann_init
+  void predict(unsigned *freq, unsigned *total);  // Replaces ann_predict
+  void train();         // Replaces ann_train
+  void cleanup();       // Replaces ann_end
+
+  // Accessors for symbol list manipulation
+  void incrementSymbolIndex() {
+    symb_list_ndx_ = (symb_list_ndx_ + 1) % symb_list_size_;
+  }
+  void setCurrentSymbol(byte symbol) {
+    symb_list_[symb_list_ndx_] = symbol;
+  }
+  int getSymbolIndex() const { return symb_list_ndx_; }
+
+  // Mini-batch frequency counter
+  bool shouldTrain() {
+    if (++mini_batch_freq_cnt_ == mini_batch_freq_) {
+      mini_batch_freq_cnt_ = 0;
+      return true;
+    }
+    return false;
+  }
+
+  // Allocate symbol list
+  void allocateSymbolList() {
+    symb_list_ = (byte*)calloc(symb_list_size_, sizeof(byte));
+  }
+
+  // Free symbol list
+  void freeSymbolList() {
+    free(symb_list_);
+    symb_list_ = nullptr;
+  }
+
+  ~CompressionCodec() {
+    cleanup();
+    if (symb_list_) freeSymbolList();
+  }
+};
 
 typedef struct stats_s {
   uint orig_current;
@@ -1941,6 +2221,7 @@ typedef struct stats_s {
 template<typename T, size_t N>
 constexpr size_t sizeof_array(const T (&)[N]) { return N; }
 
+// Legacy Adam function for backward compatibility
 void Adam(const int n_var, const float alpha, const float beta1, const float beta1t, const float beta2, const float beta2t, const float eps, float *g, float *t, float *m, float *v) {
   const float weight_decay = 0.0f; 
   const int decoupled_weight_decay = 1;
@@ -2232,7 +2513,7 @@ void ann_end(kanncompr_t options) {
 
   kann_switch(options.ua, 0);
 
-  kann_delete_unrolled(options.ua); 
+  kann_delete_unrolled(options.ua);
 
   kann_delete(options.ann);
 
@@ -2243,48 +2524,245 @@ void ann_end(kanncompr_t options) {
   free(options.y); free(options.x);
 }
 
+// CompressionCodec method implementations
+
+void CompressionCodec::buildNetwork() {
+  int i;
+  unsigned int j, k;
+  int n_layers_1 = n_layers_ - 1 + (n_layers_ == 1);
+  float bias_init_from_to[4][2];
+  uint rnn_flag = (var_h0_ ? KANNCOMPR_RNN_VAR_H0 : 0) | (norm_ ? KANNCOMPR_RNN_NORM : 0);
+  kad_node_t **tlist = (kad_node_t**)malloc(n_layers_ * sizeof(kad_node_t*));
+
+  kad_node_t *t = kann_layer_input(n_char_in_);
+
+  for(i = 0; i < n_layers_; ++i){
+    if(i >= 2 && n_layers_embed_hidden_ >= 2)
+      t = i <= n_layers_embed_hidden_ ? kad_concat_array(1, i, &tlist[0]) : kad_concat_array(1, n_layers_embed_hidden_, &tlist[i - n_layers_embed_hidden_]);
+
+    for(j = 0; j < sizeof_array(bias_init_from_to); ++j)
+      for(k = 0; k < sizeof_array(bias_init_from_to[0]); ++k)
+        bias_init_from_to[j][k] = ((n_layers_1 - i) * bias_init_from_to_[j][k] + i * bias_init_from_to_[j][k + 2]) / n_layers_1;
+
+    switch(rnn_type_) {
+    case 51:
+      t = kanncompr_layer_lstm(t, n_neurons_, rnn_flag | KANNCOMPR_LSTM_MV_VARIANT | KANNCOMPR_LSTM_INPUT_FORGET_GATE_COUPLED, bias_init_type_, bias_init_from_to);
+      break;
+    default:;
+      break;
+    }
+
+    if(dropout_ > 0.0) t = kann_layer_dropout(t, dropout_);
+
+    tlist[i] = t;
+  }
+
+  if(i >= 2 && n_layers_embed_output_ >= 2)
+    t = i <= n_layers_embed_output_ ? kad_concat_array(1, i, &tlist[0]) : kad_concat_array(1, n_layers_embed_output_, &tlist[i - n_layers_embed_output_]);
+
+  free(tlist);
+
+  ann_ = kann_new(kanncompr_layer_cost(t, n_char_out_, temper_), 0);
+}
+
+void CompressionCodec::initialize() {
+  x_ = (float**)malloc(ulen_ * sizeof(float*));
+  y_ = (float**)malloc(ulen_ * sizeof(float*));
+  for(int k = 0; k < ulen_; k++) {
+    x_[k] = (float*)calloc(mini_batch_size_ * n_char_in_ , sizeof(float));
+    y_[k] = (float*)calloc(mini_batch_size_ * n_char_out_, sizeof(float));
+  }
+
+  xp_ = (float*)calloc(n_char_in_, sizeof(float));
+
+  n_var_ = kann_size_var(ann_);
+
+  ua_ = kann_unroll(ann_, ulen_);
+  kann_set_batch_size(ua_, mini_batch_size_);
+
+  // Initialize optimizer
+  optimizer_.allocate(n_var_, optimizer_.alpha1() != 0.0 || optimizer_.beta1t() != 0.0);
+
+  kann_feed_bind(ua_, KANN_F_IN,    0, x_);
+  kann_feed_bind(ua_, KANN_F_TRUTH, 0, y_);
+  kann_switch(ua_, 1);
+
+  kann_rnn_start(ann_);
+}
+
+void CompressionCodec::predict(unsigned *freq, unsigned *total) {
+  unsigned i;
+  float sum = 0.0;
+
+  xp_[symb_list_[symb_list_ndx_]] = 1.0;
+  const float *yp = kann_apply1(ann_, xp_);
+  xp_[symb_list_[symb_list_ndx_]] = 0.0;
+
+  for(i = 0; i < (unsigned)n_char_out_; i++) sum += yp[i];
+  for(i = 0; i < (unsigned)n_char_out_; i++) {
+    freq[i] = yp[i] * (SCALE - n_char_out_ - 1) / sum;
+    freq[i] += freq[i] == 0;
+  }
+  *total = 1;
+  for(i = 0; i < (unsigned)n_char_out_; i++) *total += freq[i];
+  if(*total >= SCALE) exit(6);
+}
+
+void CompressionCodec::train() {
+  int ul_x, ul_y = (symb_list_ndx_ + 1) % symb_list_size_;
+  for(int ul = 0; ul < ulen_; ul++) {
+    memset(x_[ul], 0, mini_batch_size_ * n_char_in_  * sizeof(float));
+    memset(y_[ul], 0, mini_batch_size_ * n_char_out_ * sizeof(float));
+
+    ul_x = ul_y;
+    ul_y = (ul_y + 1) % symb_list_size_;
+    for(int mbs = 0, mbs_x = ul_x, mbs_y = ul_y; mbs < mini_batch_size_; mbs++, mbs_x = (mbs_x + mini_batch_step_) % symb_list_size_, mbs_y = (mbs_y + mini_batch_step_) % symb_list_size_) {
+      x_[ul][mbs * n_char_in_  + symb_list_[mbs_x]] = 1.0;
+      y_[ul][mbs * n_char_out_ + symb_list_[mbs_y]] = 1.0;
+    }
+  }
+
+  kann_cost(ua_, 0, 1);
+
+  if(grad_clip_ > 0.0f) {
+    kann_grad_clip(grad_clip_, n_var_, ua_->g);
+  } else if(grad_clip_ < 0.0f) {
+    for(int i = 0; i < n_var_; ++i)
+      if(ua_->g[i] < grad_clip_)
+        ua_->g[i] = grad_clip_;
+      else if(ua_->g[i] > -grad_clip_)
+        ua_->g[i] = -grad_clip_;
+  }
+
+  optimizer_.step(ua_->g, ua_->x);
+}
+
+void CompressionCodec::cleanup() {
+  if (ann_) {
+    kann_rnn_end(ann_);
+    kann_switch(ua_, 0);
+    kann_delete_unrolled(ua_);
+    kann_delete(ann_);
+    ann_ = nullptr;
+    ua_ = nullptr;
+  }
+
+  optimizer_.cleanup();
+
+  if (xp_) {
+    free(xp_);
+    xp_ = nullptr;
+  }
+
+  if (x_) {
+    for(int k = 0; k < ulen_; k++) {
+      if (y_) free(y_[k]);
+      free(x_[k]);
+    }
+    free(x_);
+    x_ = nullptr;
+  }
+
+  if (y_) {
+    free(y_);
+    y_ = nullptr;
+  }
+}
+
+// FileSerializer class - Modern C++ encapsulation of file I/O operations
+class FileSerializer {
+public:
+  // Write operations
+  static int writeU8(FILE *file, byte value) {
+    return fputc(value, file) == EOF;
+  }
+
+  static int writeU16(FILE *file, word value) {
+    return writeU8(file, (value >> 0) & 0xff) || writeU8(file, (value >> 8) & 0xff);
+  }
+
+  static int writeU32(FILE *file, uint value) {
+    return writeU16(file, (value >> 0) & 0xffff) || writeU16(file, (value >> 16) & 0xffff);
+  }
+
+  static int writeS32(FILE *file, long value) {
+    return writeU16(file, (value >> 0) & 0xffff) || writeU16(file, (value >> 16) & 0xffff);
+  }
+
+  static int writeFloat(FILE *file, float value) {
+    uint v;
+    memcpy(&v, &value, sizeof(float));
+    return writeU32(file, v);
+  }
+
+  // Read operations
+  static int readU8(FILE *file, byte *value) {
+    int v = fgetc(file);
+    if(v == EOF) return 1;
+    *value = v;
+    return 0;
+  }
+
+  static int readU16(FILE *file, word *value) {
+    byte v1, v2;
+    if(readU8(file, &v1) || readU8(file, &v2)) return 1;
+    *value = (word)v1 << 0 | (word)v2 << 8;
+    return 0;
+  }
+
+  static int readU32(FILE *file, uint *value) {
+    word v1, v2;
+    if(readU16(file, &v1) || readU16(file, &v2)) return 1;
+    *value = (uint)v1 << 0 | (uint)v2 << 16;
+    return 0;
+  }
+
+  static int readS32(FILE *file, long *value) {
+    word v1, v2;
+    if(readU16(file, &v1) || readU16(file, &v2)) return 1;
+    *value = (long)v1 << 0 | (long)v2 << 16;
+    return 0;
+  }
+
+  static int readFloat(FILE *file, float *value) {
+    uint v;
+    if(readU32(file, &v)) return 1;
+    memcpy(value, &v, sizeof(float));
+    return 0;
+  }
+};
+
+// Legacy functions for backward compatibility
 int fput_ui08(FILE *file, byte value) {
-  return fputc(value, file) == EOF;
+  return FileSerializer::writeU8(file, value);
 }
 
 int fget_ui08(FILE *file, byte *value) {
-  int v = fgetc(file);
-  if(v == EOF) return 1;
-  *value = v;
-  return 0;
+  return FileSerializer::readU8(file, value);
 }
 
 int fput_ui16(FILE *file, word value) {
-  return fput_ui08(file, (value >> 0) & 0xff) || fput_ui08(file, (value >> 8) & 0xff);
+  return FileSerializer::writeU16(file, value);
 }
 
 int fget_ui16(FILE *file, word *value) {
-  byte v1, v2;
-  if(fget_ui08(file, &v1) || fget_ui08(file, &v2)) return 1;
-  *value = (word)v1 << 0 | (word)v2 << 8;
-  return 0;
+  return FileSerializer::readU16(file, value);
 }
 
 int fput_ui32(FILE *file, uint value) {
-  return fput_ui16(file, (value >> 0) & 0xffff) || fput_ui16(file, (value >> 16) & 0xffff);
+  return FileSerializer::writeU32(file, value);
 }
 
 int fget_ui32(FILE *file, uint *value) {
-  word v1, v2;
-  if(fget_ui16(file, &v1) || fget_ui16(file, &v2)) return 1;
-  *value = (uint)v1 << 0 | (uint)v2 << 16;
-  return 0;
+  return FileSerializer::readU32(file, value);
 }
 
 int fput_si32(FILE *file, long value) {
-  return fput_ui16(file, (value >> 0) & 0xffff) || fput_ui16(file, (value >> 16) & 0xffff);
+  return FileSerializer::writeS32(file, value);
 }
 
 int fget_si32(FILE *file, long *value) {
-  word v1, v2;
-  if(fget_ui16(file, &v1) || fget_ui16(file, &v2)) return 1;
-  *value = (long)v1 << 0 | (long)v2 << 16;
-  return 0;
+  return FileSerializer::readS32(file, value);
 }
 
 int fput_si00(FILE *file, int value) {
