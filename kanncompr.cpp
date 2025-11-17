@@ -9,66 +9,97 @@
 #include <string.h>
 #include <xmmintrin.h>
 
-typedef unsigned short word;
-typedef unsigned int   uint;
-typedef unsigned char  byte;
-typedef unsigned long long qword;
-typedef signed long long sqword;
+// Modern C++ type aliases instead of typedefs
+using word = uint16_t;
+using uint = uint32_t;
+using byte = uint8_t;
+using qword = uint64_t;
+using sqword = int64_t;
 
-#define KANN_VERSION "r549"
+// Version constants - replacing macros with constexpr
+constexpr const char* KANN_VERSION = "r549";
 
-#define KANN_F_IN       0x1   
-#define KANN_F_OUT      0x2   
-#define KANN_F_TRUTH    0x4   
-#define KANN_F_COST     0x8   
+// KANN flags - replacing macros with constexpr
+constexpr uint32_t KANN_F_IN = 0x1;
+constexpr uint32_t KANN_F_OUT = 0x2;
+constexpr uint32_t KANN_F_TRUTH = 0x4;
+constexpr uint32_t KANN_F_COST = 0x8;
 
-#define KANN_C_CEB      1   
-#define KANN_C_CEM      2   
-#define KANN_C_CEB_NEG  3   
-#define KANN_C_MSE      4   
+// KANN cost types - replacing macros with constexpr
+constexpr int KANN_C_CEB = 1;
+constexpr int KANN_C_CEM = 2;
+constexpr int KANN_C_CEB_NEG = 3;
+constexpr int KANN_C_MSE = 4;
 
-#define KANN_RNN_VAR_H0 0x1 
-#define KANN_RNN_NORM   0x2 
+// KANN RNN flags - replacing macros with constexpr
+constexpr uint32_t KANN_RNN_VAR_H0 = 0x1;
+constexpr uint32_t KANN_RNN_NORM = 0x2;
 
-#define KAD_VERSION "r544"
+// KAD version - replacing macro with constexpr
+constexpr const char* KAD_VERSION = "r544";
 
-#define KAD_MAX_DIM 4     
-#define KAD_MAX_OP  64    
+// KAD dimensions and operations - replacing macros with constexpr
+constexpr int KAD_MAX_DIM = 4;
+constexpr int KAD_MAX_OP = 64;
 
-#define KAD_VAR        0x1
-#define KAD_CONST      0x2
-#define KAD_POOL       0x4
-#define KAD_SHARE_RNG  0x10 
+// KAD flags - replacing macros with constexpr
+constexpr uint8_t KAD_VAR = 0x1;
+constexpr uint8_t KAD_CONST = 0x2;
+constexpr uint8_t KAD_POOL = 0x4;
+constexpr uint8_t KAD_SHARE_RNG = 0x10;
 
-#define kad_is_back(p)  ((p)->flag & KAD_VAR)
-#define kad_is_ext(p)   ((p)->n_child == 0)
-#define kad_is_var(p)   (kad_is_ext(p) && kad_is_back(p))
-#define kad_is_const(p) (kad_is_ext(p) && ((p)->flag & KAD_CONST))
-#define kad_is_feed(p)  (kad_is_ext(p) && !kad_is_back(p) && !((p)->flag & KAD_CONST))
-#define kad_is_pivot(p) ((p)->n_child == 1 && ((p)->flag & KAD_POOL))
-#define kad_is_switch(p) ((p)->op == 12 && !((p)->flag & KAD_POOL))
-#define kad_use_rng(p)  ((p)->op == 15 || (p)->op == 24)
+// kad_node_t struct with C++ methods
+struct kad_node_t {
+  uint8_t     n_d{0};
+  uint8_t     flag{0};
+  uint16_t    op{0};
+  int32_t     n_child{0};
+  int32_t     tmp{0};
+  int32_t     ptr_size{0};
+  int32_t     d[KAD_MAX_DIM]{};
+  int32_t     ext_label{0};
+  uint32_t    ext_flag{0};
+  float      *x{nullptr};
+  float      *g{nullptr};
+  void       *ptr{nullptr};
+  void       *gtmp{nullptr};
+  struct kad_node_t **child{nullptr};
+  struct kad_node_t  *pre{nullptr};
 
-#define kad_eval_enable(p) ((p)->tmp = 1)
-#define kad_eval_disable(p) ((p)->tmp = -1)
+  // Member methods replacing external functions
+  inline bool is_back() const { return flag & KAD_VAR; }
+  inline bool is_ext() const { return n_child == 0; }
+  inline bool is_var() const { return is_ext() && is_back(); }
+  inline bool is_const() const { return is_ext() && (flag & KAD_CONST); }
+  inline bool is_feed() const { return is_ext() && !is_back() && !(flag & KAD_CONST); }
+  inline bool is_pivot() const { return n_child == 1 && (flag & KAD_POOL); }
+  inline bool is_switch() const { return op == 12 && !(flag & KAD_POOL); }
+  inline bool use_rng() const { return op == 15 || op == 24; }
 
-typedef struct kad_node_t {
-  uint8_t     n_d;            
-  uint8_t     flag;           
-  uint16_t    op;             
-  int32_t     n_child;        
-  int32_t     tmp;            
-  int32_t     ptr_size;       
-  int32_t     d[KAD_MAX_DIM]; 
-  int32_t     ext_label;      
-  uint32_t    ext_flag;       
-  float      *x;              
-  float      *g;              
-  void       *ptr;            
-  void       *gtmp;           
-  struct kad_node_t **child;  
-  struct kad_node_t  *pre;    
-} kad_node_t, *kad_node_p;
+  inline void eval_enable() { tmp = 1; }
+  inline void eval_disable() { tmp = -1; }
+
+  // Calculate tensor length
+  int length() const {
+    int n = 1;
+    for (int i = 0; i < n_d; ++i) n *= d[i];
+    return n;
+  }
+};
+
+using kad_node_p = kad_node_t*;
+
+// Inline helper functions (wrappers for compatibility with C-style code)
+inline bool kad_is_back(const kad_node_t* p) { return p->is_back(); }
+inline bool kad_is_ext(const kad_node_t* p) { return p->is_ext(); }
+inline bool kad_is_var(const kad_node_t* p) { return p->is_var(); }
+inline bool kad_is_const(const kad_node_t* p) { return p->is_const(); }
+inline bool kad_is_feed(const kad_node_t* p) { return p->is_feed(); }
+inline bool kad_is_pivot(const kad_node_t* p) { return p->is_pivot(); }
+inline bool kad_is_switch(const kad_node_t* p) { return p->is_switch(); }
+inline bool kad_use_rng(const kad_node_t* p) { return p->use_rng(); }
+inline void kad_eval_enable(kad_node_t* p) { p->eval_enable(); }
+inline void kad_eval_disable(kad_node_t* p) { p->eval_disable(); }
 
 kad_node_t **kad_compile_array(int *n_node, int n_roots, kad_node_t **roots);
 
@@ -95,8 +126,9 @@ kad_node_t *kad_cmul(kad_node_t *x, kad_node_t *y);
 
 kad_node_t *kad_ce_multi(kad_node_t *x, kad_node_t *y);   
 
-#define KAD_PAD_NONE  0      
-#define KAD_PAD_SAME  (-2)   
+// KAD padding modes - replacing macros with constexpr
+constexpr int KAD_PAD_NONE = 0;
+constexpr int KAD_PAD_SAME = -2;   
 
 kad_node_t *kad_sigm(kad_node_t *x);   
 kad_node_t *kad_tanh(kad_node_t *x);   
@@ -124,35 +156,44 @@ void kad_saxpy(int n, float a, const float *x, float *y);
 
 void kad_trap_fe(void); 
 
-#define KAD_ALLOC      1
-#define KAD_FORWARD    2
-#define KAD_BACKWARD   3
-#define KAD_SYNC_DIM   4
+// KAD operation modes - replacing macros with constexpr
+constexpr int KAD_ALLOC = 1;
+constexpr int KAD_FORWARD = 2;
+constexpr int KAD_BACKWARD = 3;
+constexpr int KAD_SYNC_DIM = 4;
 
 typedef int (*kad_op_f)(kad_node_t*, int);
 extern kad_op_f kad_op_list[KAD_MAX_OP];
 
-int kad_len(const kad_node_t *p) 
+// Wrapper function for kad_node_t::length() method
+inline int kad_len(const kad_node_t *p)
 {
-  int n = 1, i;
-  for (i = 0; i < p->n_d; ++i) n *= p->d[i];
-  return n;
+  return p->length();
 }
 
-typedef struct {
-  int n;            
-  kad_node_t **v;   
-  float *x, *g, *c; 
-  void *mt;         
-} kann_t;
+// kann_t struct with C++ methods
+struct kann_t {
+  int n{0};
+  kad_node_t **v{nullptr};
+  float *x{nullptr};
+  float *g{nullptr};
+  float *c{nullptr};
+  void *mt{nullptr};
+
+  // Helper methods
+  inline int size_var() const { return kad_size_var(n, v); }
+  inline int size_const() const { return kad_size_const(n, v); }
+  inline void set_batch_size(int B) { kad_sync_dim(n, v, B); }
+};
 
 extern int kann_verbose;
 
-#define kann_size_var(a) kad_size_var((a)->n, (a)->v)
-#define kann_size_const(a) kad_size_const((a)->n, (a)->v)
-#define kann_srand(seed) kad_srand(0, (seed))
-#define kann_drand() kad_drand(0)
-#define kann_set_batch_size(ann, B) kad_sync_dim((ann)->n, (ann)->v, (B))
+// Inline functions replacing kann_ macros
+inline int kann_size_var(const kann_t* a) { return kad_size_var(a->n, a->v); }
+inline int kann_size_const(const kann_t* a) { return kad_size_const(a->n, a->v); }
+inline void kann_srand(uint64_t seed) { kad_srand(nullptr, seed); }
+inline double kann_drand() { return kad_drand(nullptr); }
+inline void kann_set_batch_size(kann_t* ann, int B) { kad_sync_dim(ann->n, ann->v, B); }
 
 kann_t *kann_new(kad_node_t *cost, int n_rest, ...);
 
@@ -320,8 +361,9 @@ void kann_switch_core(kann_t *a, int is_train)
       *(int32_t*)a->v[i]->ptr = !!is_train;
 }
 
-#define chk_flg(flag, mask) ((mask) == 0 || ((flag) & (mask)))
-#define chk_lbl(label, query) ((query) == 0 || (label) == (query))
+// Inline functions replacing chk_ macros
+inline bool chk_flg(uint32_t flag, uint32_t mask) { return mask == 0 || (flag & mask); }
+inline bool chk_lbl(int32_t label, int32_t query) { return query == 0 || label == query; }
 
 int kann_find(const kann_t *a, uint32_t ext_flag, int32_t ext_label)
 {
@@ -381,7 +423,8 @@ void kann_rnn_end(kann_t *a)
 float kann_cost(kann_t *a, int cost_label, int cal_grad) { return kann_cost_core(a, cost_label, cal_grad); }
 void kann_switch(kann_t *ann, int is_train) { return kann_switch_core(ann, is_train); }
 
-#define KANN_MAGIC "KAN\1"
+// KANN magic constant - replacing macro with constexpr
+constexpr const char* KANN_MAGIC = "KAN\1";
 
 kad_node_t *kann_new_leaf_array(int *offset, kad_node_p *par, uint8_t flag, float x0_01, int n_d, int32_t d[KAD_MAX_DIM])
 {
@@ -585,30 +628,28 @@ kad_node_t *kad_op1_core(int op, kad_node_t *x)
   return kad_finalize_node(s);
 }
 
-#define KAD_FUNC_OP2(fname, op) kad_node_t *fname(kad_node_t *x, kad_node_t *y) { return kad_op2_core((op), x, y); }
+// Binary operations - replacing macro-generated functions with direct implementations
+inline kad_node_t* kad_add(kad_node_t* x, kad_node_t* y) { return kad_op2_core(1, x, y); }
+inline kad_node_t* kad_sub(kad_node_t* x, kad_node_t* y) { return kad_op2_core(23, x, y); }
+inline kad_node_t* kad_mul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(2, x, y); }
+inline kad_node_t* kad_cmul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(3, x, y); }
+inline kad_node_t* kad_matmul(kad_node_t* x, kad_node_t* y) { return kad_op2_core(9, x, y); }
+inline kad_node_t* kad_ce_multi(kad_node_t* x, kad_node_t* y) { return kad_op2_core(13, x, y); }
+inline kad_node_t* kad_ce_bin(kad_node_t* x, kad_node_t* y) { return kad_op2_core(22, x, y); }
+inline kad_node_t* kad_ce_bin_neg(kad_node_t* x, kad_node_t* y) { return kad_op2_core(4, x, y); }
+inline kad_node_t* kad_mse(kad_node_t* x, kad_node_t* y) { return kad_op2_core(29, x, y); }
 
-KAD_FUNC_OP2(kad_add, 1)
-KAD_FUNC_OP2(kad_sub, 23)
-KAD_FUNC_OP2(kad_mul, 2)
-KAD_FUNC_OP2(kad_cmul, 3)
-KAD_FUNC_OP2(kad_matmul, 9)
-KAD_FUNC_OP2(kad_ce_multi, 13)
-KAD_FUNC_OP2(kad_ce_bin, 22)
-KAD_FUNC_OP2(kad_ce_bin_neg, 4)
-KAD_FUNC_OP2(kad_mse, 29)
-
-#define KAD_FUNC_OP1(fname, op) kad_node_t *fname(kad_node_t *x) { return kad_op1_core((op), x); }
-
-KAD_FUNC_OP1(kad_log, 27)
-KAD_FUNC_OP1(kad_exp, 33)
-KAD_FUNC_OP1(kad_sin, 34)
-KAD_FUNC_OP1(kad_square, 5)
-KAD_FUNC_OP1(kad_sigm, 6)
-KAD_FUNC_OP1(kad_tanh, 7)
-KAD_FUNC_OP1(kad_relu, 8)
-KAD_FUNC_OP1(kad_1minus, 11)
-KAD_FUNC_OP1(kad_softmax, 14)
-KAD_FUNC_OP1(kad_stdnorm, 32)
+// Unary operations - replacing macro-generated functions with direct implementations
+inline kad_node_t* kad_log(kad_node_t* x) { return kad_op1_core(27, x); }
+inline kad_node_t* kad_exp(kad_node_t* x) { return kad_op1_core(33, x); }
+inline kad_node_t* kad_sin(kad_node_t* x) { return kad_op1_core(34, x); }
+inline kad_node_t* kad_square(kad_node_t* x) { return kad_op1_core(5, x); }
+inline kad_node_t* kad_sigm(kad_node_t* x) { return kad_op1_core(6, x); }
+inline kad_node_t* kad_tanh(kad_node_t* x) { return kad_op1_core(7, x); }
+inline kad_node_t* kad_relu(kad_node_t* x) { return kad_op1_core(8, x); }
+inline kad_node_t* kad_1minus(kad_node_t* x) { return kad_op1_core(11, x); }
+inline kad_node_t* kad_softmax(kad_node_t* x) { return kad_op1_core(14, x); }
+inline kad_node_t* kad_stdnorm(kad_node_t* x) { return kad_op1_core(32, x); }
 
 typedef struct {
   int kernel_size, stride, pad[2];
@@ -712,49 +753,57 @@ int kad_sync_dim(int n, kad_node_t **v, int batch_size)
   return batch_size > 0? batch_size : old_size;
 }
 
-#define kvec_t(type) struct { size_t n, m; type *a; }
+// Template vector structure replacing kvec_t macro
+template<typename T>
+struct kvec_t {
+  size_t n{0};
+  size_t m{0};
+  T* a{nullptr};
 
-#define kv_pop(v) ((v).a[--(v).n])
+  T pop() { return a[--n]; }
 
-#define kv_push(type, v, x) do { \
-    if ((v).n == (v).m) { \
-      (v).m = (v).m? (v).m<<1 : 2; \
-      (v).a = (type*)realloc((v).a, sizeof(type) * (v).m); \
-    } \
-    (v).a[(v).n++] = (x); \
-  } while (0)
+  void push(const T& x) {
+    if (n == m) {
+      m = m ? m << 1 : 2;
+      a = static_cast<T*>(realloc(a, sizeof(T) * m));
+    }
+    a[n++] = x;
+  }
+
+  ~kvec_t() { free(a); }
+};
 
 kad_node_t **kad_compile_array(int *n_node, int n_roots, kad_node_t **roots)
 {
   int i;
-  kvec_t(kad_node_p) stack = {0,0,0}, a = {0,0,0};
+  kvec_t<kad_node_p> stack = {}, a = {};
 
   for (i = 0; i < n_roots; ++i) {
-    roots[i]->tmp = 1; 
-    kv_push(kad_node_p, stack, roots[i]);
+    roots[i]->tmp = 1;
+    stack.push(roots[i]);
   }
   while (stack.n) {
-    kad_node_t *p = kv_pop(stack);
+    kad_node_t *p = stack.pop();
     for (i = 0; i < p->n_child; ++i) {
       kad_node_t *q = p->child[i];
-      if (q->tmp == 0) kv_push(kad_node_p, stack, q);
+      if (q->tmp == 0) stack.push(q);
       q->tmp += 1<<1;
     }
   }
 
   for (i = 0; i < n_roots; ++i)
-    if (roots[i]->tmp>>1 == 0) 
-      kv_push(kad_node_p, stack, roots[i]);
+    if (roots[i]->tmp>>1 == 0)
+      stack.push(roots[i]);
   while (stack.n) {
-    kad_node_t *p = kv_pop(stack);
-    kv_push(kad_node_p, a, p);
+    kad_node_t *p = stack.pop();
+    a.push(p);
     for (i = 0; i < p->n_child; ++i) {
       p->child[i]->tmp -= 1<<1;
       if (p->child[i]->tmp>>1 == 0)
-        kv_push(kad_node_p, stack, p->child[i]);
+        stack.push(p->child[i]);
     }
   }
-  free(stack.a);
+  // stack is automatically freed by destructor
   for (i = 0; i < (int)a.n; ++i) { 
     assert(a.a[i]->tmp>>1 == 0);
     a.a[i]->tmp = 0;
@@ -1574,10 +1623,7 @@ void kad_add_delta(int n, kad_node_t **a, float c, float *delta)
     }
 }
 
-typedef unsigned int   uint;
-typedef unsigned char  byte;
-typedef unsigned long long qword;
-
+// Range coder constants
 const int SCALElog = 15;
 const int SCALE    = 1<<SCALElog;
 
@@ -1687,8 +1733,9 @@ struct Rangecoder {
 
 } rc;
 
-#define VERSION_ID                      (0x04)
-#define VERSION_DATE                    "2024/07/26"
+// Version constants - replacing macros with constexpr
+constexpr uint8_t VERSION_ID = 0x04;
+constexpr const char* VERSION_DATE = "2024/07/26";
 
 typedef struct kanncompr_s {
   
@@ -1732,7 +1779,9 @@ typedef struct stats_s {
   uint orig_previous;
 } stats_t;
 
-#define sizeof_array(A)                 (sizeof(A) / sizeof(A[0]))
+// Template function replacing sizeof_array macro
+template<typename T, size_t N>
+constexpr size_t sizeof_array(const T (&)[N]) { return N; }
 
 void Adam(const int n_var, const float alpha, const float beta1, const float beta1t, const float beta2, const float beta2t, const float eps, float *g, float *t, float *m, float *v) {
   const float weight_decay = 0.0f; 
@@ -1765,13 +1814,14 @@ void Adam(const int n_var, const float alpha, const float beta1, const float bet
   }
 }
 
-#define KANNCOMPR_RNN_VAR_H0                        (0x0001)
-#define KANNCOMPR_RNN_NORM                          (0x0002)
-#define KANNCOMPR_GRU_MINIMAL_GATED_UNIT            (0x0004)
-#define KANNCOMPR_LSTM_INPUT_FORGET_GATE_COUPLED    (0x0008)
-#define KANNCOMPR_LSTM_MV_VARIANT1                  (0x1000)
-#define KANNCOMPR_LSTM_MV_VARIANT2                  (0x2000)
-#define KANNCOMPR_LSTM_MV_VARIANT                   (KANNCOMPR_LSTM_MV_VARIANT1 | KANNCOMPR_LSTM_MV_VARIANT2)
+// KANNCOMPR RNN flags - replacing macros with constexpr
+constexpr uint32_t KANNCOMPR_RNN_VAR_H0 = 0x0001;
+constexpr uint32_t KANNCOMPR_RNN_NORM = 0x0002;
+constexpr uint32_t KANNCOMPR_GRU_MINIMAL_GATED_UNIT = 0x0004;
+constexpr uint32_t KANNCOMPR_LSTM_INPUT_FORGET_GATE_COUPLED = 0x0008;
+constexpr uint32_t KANNCOMPR_LSTM_MV_VARIANT1 = 0x1000;
+constexpr uint32_t KANNCOMPR_LSTM_MV_VARIANT2 = 0x2000;
+constexpr uint32_t KANNCOMPR_LSTM_MV_VARIANT = KANNCOMPR_LSTM_MV_VARIANT1 | KANNCOMPR_LSTM_MV_VARIANT2;
 
 kad_node_t *kanncompr_new_vector(const int n, const int x_init_type, const float x_init_from_to[2]) {
   int i, offset = 0;
@@ -2103,14 +2153,13 @@ int fget_fl(FILE *file, float *value) {
 
 char const *vers[] = { "0.1", "1.0", "2.0", "3.0", "4.0" };
 
+// Inline functions replacing PERC and BPB macros (moved before use)
+inline float PERC(float V, float T) { return 100.0f * V / T; }
+inline float BPB(float V, float T) { return 8.0f * V / T; }
+
 void display_stats(stats_t *stats, qword comprpos) {
   if(stats->orig_current >= 1 && stats->orig_total >= 1 && comprpos != stats->rc_previous && stats->orig_current != stats->orig_previous)
-#define PERC(V, T)                      (100.0 * (float)(V) / (float)(T))
-#define BPB(V, T)                       (  8.0 * (float)(V) / (float)(T))
     printf("%7.3f%% %7.3f%%/%6.3f %7.3f%%/%6.3f\r", PERC(stats->orig_current, stats->orig_total), PERC(comprpos, stats->orig_current), BPB(comprpos, stats->orig_current), PERC(comprpos - stats->rc_previous, stats->orig_current - stats->orig_previous), BPB(comprpos - stats->rc_previous, stats->orig_current - stats->orig_previous));
-    
-#undef BPB
-#undef PERC
   stats->rc_previous   = comprpos;
   stats->orig_previous = stats->orig_current;
 }
@@ -2119,7 +2168,7 @@ int main(int argc, char** argv) {
   kanncompr_t options;
 
   if(argc != 4 || (argv[1][0] != 'c' && argv[1][0] != 'd')) {
-    printf("kanncompr %s - Mauro Vezzosi - " VERSION_DATE "\n", vers[VERSION_ID]);
+    printf("kanncompr %s - Mauro Vezzosi - %s\n", vers[VERSION_ID], VERSION_DATE);
     printf("https://encode.su/threads/4149-kanncompr\n");
     printf("Compression  : kanncompr c original_file compressed_file\n");
     printf("Decompression: kanncompr d compressed_file decompressed_file\n");
