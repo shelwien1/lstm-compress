@@ -102,23 +102,26 @@ struct NeuronLayer {
 };
 //--- #include "lstm-layer.hpp"
 
+template<unsigned int NUM_CELLS, unsigned int HORIZON,
+         unsigned int GRADIENT_CLIP_X10, unsigned int LEARNING_RATE_X100000,
+         unsigned int UPDATE_LIMIT>
 class LstmLayer {
  public:
+  static constexpr float gradient_clip_ = GRADIENT_CLIP_X10 / 10.0f;
+  static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
+
   LstmLayer(unsigned int input_size, unsigned int auxiliary_input_size,
-      unsigned int output_size, unsigned int num_cells, int horizon,
-      float gradient_clip, float learning_rate, int update_limit) :
-      state_(num_cells), state_error_(num_cells), stored_error_(num_cells),
-      tanh_state_(std::valarray<float>(num_cells), horizon),
-      input_gate_state_(std::valarray<float>(num_cells), horizon),
-      last_state_(std::valarray<float>(num_cells), horizon),
-      gradient_clip_(gradient_clip), learning_rate_(learning_rate),
-      num_cells_(num_cells), epoch_(0), horizon_(horizon),
+      unsigned int output_size) :
+      state_(NUM_CELLS), state_error_(NUM_CELLS), stored_error_(NUM_CELLS),
+      tanh_state_(std::valarray<float>(NUM_CELLS), HORIZON),
+      input_gate_state_(std::valarray<float>(NUM_CELLS), HORIZON),
+      last_state_(std::valarray<float>(NUM_CELLS), HORIZON),
+      num_cells_(NUM_CELLS), epoch_(0), horizon_(HORIZON),
       input_size_(auxiliary_input_size), output_size_(output_size),
-      forget_gate_(input_size, num_cells, horizon, output_size_ + input_size_),
-      input_node_(input_size, num_cells, horizon, output_size_ + input_size_),
-      output_gate_(input_size, num_cells, horizon, output_size_ + input_size_) 
+      forget_gate_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_),
+      input_node_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_),
+      output_gate_(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_)
   {
-    UPDATE_LIMIT = update_limit;
     float val = sqrt(6.0f / float(input_size_ + output_size_));
     float low = -val;
     float range = 2 * val;
@@ -207,39 +210,35 @@ class LstmLayer {
  private:
   std::valarray<float> state_, state_error_, stored_error_;
   std::valarray<std::valarray<float>> tanh_state_, input_gate_state_, last_state_;
-  float gradient_clip_, learning_rate_;
   unsigned int num_cells_, epoch_, horizon_, input_size_, output_size_;
   unsigned long long update_steps_ = 0;
   NeuronLayer forget_gate_, input_node_, output_gate_;
 
-//--- #include "adam.hpp"
-
-uint UPDATE_LIMIT;
-
 // ============================================================================
-// Adam optimizer (helper function)
+// Adam optimizer (helper function template)
 // ============================================================================
 
-void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>* v, std::valarray<float>* w, float learning_rate, float t) {
-  const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
-  float alpha;
-  if (t < UPDATE_LIMIT) {
-    alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
-  } else {
-    alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
+  template<unsigned int UPD_LIMIT>
+  static void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>* v, std::valarray<float>* w, float learning_rate, float t) {
+    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    float alpha;
+    if (t < UPD_LIMIT) {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
+    } else {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPD_LIMIT + 1.0f);
+    }
+    (*m) *= beta1;
+    (*m) += (1.0f - beta1) * (*g);
+    (*v) *= beta2;
+    (*v) += (1.0f - beta2) * (*g) * (*g);
+    if (t < UPD_LIMIT) {
+      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, t))) /
+          (sqrt((*v) / (float)(1.0f - pow(beta2, t)) + eps)));
+    } else {
+      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, UPD_LIMIT))) /
+          (sqrt((*v) / (float)(1.0f - pow(beta2, UPD_LIMIT)) + eps)));
+    }
   }
-  (*m) *= beta1;
-  (*m) += (1.0f - beta1) * (*g);
-  (*v) *= beta2;
-  (*v) += (1.0f - beta2) * (*g) * (*g);
-  if (t < UPDATE_LIMIT) {
-    (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, t))) /
-        (sqrt((*v) / (float)(1.0f - pow(beta2, t)) + eps)));
-  } else {
-    (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) /
-        (sqrt((*v) / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
-  }
-}
 
   void ClipGradients(std::valarray<float>* arr) {
     for (unsigned int i = 0; i < arr->size(); ++i) {
@@ -308,41 +307,46 @@ void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>
     }
     if (epoch == 0) {
       for (unsigned int i = 0; i < num_cells_; ++i) {
-        Adam(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i],
+        Adam<UPDATE_LIMIT>(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i],
             &neurons.weights_[i], learning_rate_, update_steps_);
       }
-      Adam(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_,
+      Adam<UPDATE_LIMIT>(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_,
           &neurons.gamma_, learning_rate_, update_steps_);
-      Adam(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_,
+      Adam<UPDATE_LIMIT>(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_,
           &neurons.beta_, learning_rate_, update_steps_);
     }
   }
 };
 //--- #include "lstm.hpp"
 
+template<unsigned int INPUT_SIZE, unsigned int NUM_CELLS, unsigned int NUM_LAYERS,
+         unsigned int HORIZON, unsigned int GRADIENT_CLIP_X10,
+         unsigned int LEARNING_RATE_X100000, unsigned int UPDATE_LIMIT>
 class Lstm {
  public:
+  using LstmLayerType = LstmLayer<NUM_CELLS, HORIZON, GRADIENT_CLIP_X10,
+                                   LEARNING_RATE_X100000, UPDATE_LIMIT>;
+  static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
+
   NOINLINE
-  Lstm(unsigned int input_size, unsigned int output_size, unsigned int
-      num_cells, unsigned int num_layers, int horizon, float learning_rate,
-      float gradient_clip, int update_limit) : input_history_(horizon),
-      hidden_(num_cells * num_layers + 1), hidden_error_(num_cells),
+  Lstm(unsigned int output_size) : input_history_(HORIZON),
+      hidden_(NUM_CELLS * NUM_LAYERS + 1), hidden_error_(NUM_CELLS),
       layer_input_(std::valarray<std::valarray<float>>(std::valarray<float>
-      (input_size + 1 + num_cells * 2), num_layers), horizon),
+      (INPUT_SIZE + 1 + NUM_CELLS * 2), NUM_LAYERS), HORIZON),
       output_layer_(std::valarray<std::valarray<float>>(std::valarray<float>
-     (num_cells * num_layers + 1), output_size), horizon),
-      output_(std::valarray<float>(1.0 / output_size, output_size), horizon),
-      learning_rate_(learning_rate), num_cells_(num_cells), epoch_(0),
-      horizon_(horizon), input_size_(input_size), output_size_(output_size) {
+     (NUM_CELLS * NUM_LAYERS + 1), output_size), HORIZON),
+      output_(std::valarray<float>(1.0 / output_size, output_size), HORIZON),
+      num_cells_(NUM_CELLS), epoch_(0),
+      horizon_(HORIZON), input_size_(INPUT_SIZE), output_size_(output_size) {
     hidden_[hidden_.size() - 1] = 1;
-    for (int epoch = 0; epoch < horizon; ++epoch) {
-      layer_input_[epoch][0].resize(1 + num_cells + input_size);
-      for (unsigned int i = 0; i < num_layers; ++i) {
+    for (int epoch = 0; epoch < HORIZON; ++epoch) {
+      layer_input_[epoch][0].resize(1 + NUM_CELLS + INPUT_SIZE);
+      for (unsigned int i = 0; i < NUM_LAYERS; ++i) {
         layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
       }
     }
-    for (unsigned int i = 0; i < num_layers; ++i) {
-      layers_.emplace_back(layer_input_[0][i].size() + output_size, input_size_, output_size_,num_cells, horizon, gradient_clip, learning_rate,update_limit);
+    for (unsigned int i = 0; i < NUM_LAYERS; ++i) {
+      layers_.emplace_back(layer_input_[0][i].size() + output_size, INPUT_SIZE, output_size);
     }
   }
 
@@ -419,13 +423,12 @@ class Lstm {
   }
 
  private:
-  std::vector<LstmLayer> layers_;
+  std::vector<LstmLayerType> layers_;
   std::vector<uint8_t> input_history_;
   std::valarray<float> hidden_, hidden_error_;
   std::valarray<std::valarray<std::valarray<float>>> layer_input_,
       output_layer_;
   std::valarray<std::valarray<float>> output_;
-  float learning_rate_;
   unsigned int num_cells_, epoch_, horizon_, input_size_, output_size_;
   int last_input_ = -1;
 };
@@ -520,13 +523,14 @@ class PPMD : public Byte_Model {
 
 //--- #include "model.hpp"
 
+template<typename LstmType>
 struct Model {
   int byte_map_[256];
   float probs_[256];
-  Lstm* lstm_;
+  LstmType* lstm_;
   char* vocab_;
 
-  Model( char* vocab, Lstm* lstm ) {
+  Model( char* vocab, LstmType* lstm ) {
     vocab_ = vocab;
     lstm_ = lstm;
     int i, offset = 0;
@@ -560,135 +564,50 @@ static const uint CNUM = 256;
 
 char cmap[CNUM];
 
+// Fixed template parameters (previously command-line configurable)
+constexpr int PPMD_ORDER = 9;
+constexpr int PPMD_MEMORY = 1000;
+constexpr unsigned int LSTM_INPUT_SIZE = 128;
+constexpr unsigned int LSTM_NUM_CELLS = 90;
+constexpr unsigned int LSTM_NUM_LAYERS = 2;
+constexpr unsigned int LSTM_HORIZON = 73;
+constexpr unsigned int LSTM_LEARNING_RATE_X100000 = 7200;  // 0.072 * 100000
+constexpr unsigned int LSTM_GRADIENT_CLIP_X10 = 20;         // 2.0 * 10
+constexpr unsigned int UPDATE_LIMIT = 3000;
+
+using LstmType = Lstm<LSTM_INPUT_SIZE, LSTM_NUM_CELLS, LSTM_NUM_LAYERS,
+                      LSTM_HORIZON, LSTM_GRADIENT_CLIP_X10,
+                      LSTM_LEARNING_RATE_X100000, UPDATE_LIMIT>;
+
 int main( int argc, char** argv ) {
 
-  // Initialize parameters with defaults
-  int ppmd_order = 9;
-  int ppmd_memory = 1000;
-  int lstm_input_size = 128;
-  int lstm_num_cells = 90;
-  int lstm_num_layers = 2;
-  int lstm_horizon = 73;
-  float lstm_learning_rate = 7200;
-  float lstm_gradient_clip = 2.0f;
-  int update_limit = 3000;
-
-auto print_usage = [&](const char* program_name) {
-  printf(
-"LSTM Compressor - Neural network based file compression\n"
-"\n"
-"Usage: %s <mode> <input> <output> [options]\n"
-"\n"
-"Required arguments:\n"
-"  <mode>    'e' for encode/compress, 'd' for decode/decompress\n"
-"  <input>   Input file path\n"
-"  <output>  Output file path\n"
-"\n"
-"Optional parameters:\n"
-"  Can be specified by name (name=value) or positionally (in order shown):\n"
-"\n"
-"  ppmd_order=<n>           PPMD model order (default: %i)\n"
-"  ppmd_memory=<n>          PPMD memory in MB (default: %i)\n"
-"  lstm_input_size=<n>      LSTM input layer size (default: %i)\n"
-"  lstm_num_cells=<n>       LSTM number of cells (default: %i)\n"
-"  lstm_num_layers=<n>      LSTM number of layers (default: %i)\n"
-"  lstm_horizon=<n>         LSTM horizon (default: %i)\n"
-"  lstm_learning_rate=<f>   LSTM learning rate (default: %.1f)\n"
-"  lstm_gradient_clip=<f>   LSTM gradient clip (default: %.1f)\n"
-"  update_limit=<n>         Update limit for Adam optimizer (default: %i)\n"
-"\n"
-"Examples:\n"
-"  %s e input.txt output.compressed\n"
-"  %s d output.compressed restored.txt\n"
-"  %s e input.txt output.compressed ppmd_order=9 lstm_num_layers=1\n"
-"  %s e input.txt output.compressed 10 800 100 80 %i %i %.1f %.1f %i\n",
-  program_name, 
-  ppmd_order, ppmd_memory, lstm_input_size, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip, update_limit,
-  program_name, program_name, program_name, program_name,
-  lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip, update_limit
-  );
-};
-
-  if( argc<4 || (argc>=2 && (strcmp(argv[1], "-h")==0 || strcmp(argv[1], "--help")==0)) ) {
-    print_usage(argv[0]);
-    return (argc>=2 && (strcmp(argv[1], "-h")==0 || strcmp(argv[1], "--help")==0)) ? 0 : 1;
+  if( argc < 4 ) {
+    printf(
+      "LSTM Compressor - Neural network based file compression\n"
+      "\n"
+      "Usage: %s <mode> <input> <output>\n"
+      "\n"
+      "Arguments:\n"
+      "  <mode>    'c' for compress, 'd' for decompress\n"
+      "  <input>   Input file path\n"
+      "  <output>  Output file path\n"
+      "\n"
+      "Fixed parameters:\n"
+      "  ppmd_order=%d ppmd_memory=%d lstm_input_size=%u\n"
+      "  lstm_num_cells=%u lstm_num_layers=%u lstm_horizon=%u\n"
+      "  lstm_learning_rate=%.5f lstm_gradient_clip=%.1f update_limit=%u\n",
+      argv[0],
+      PPMD_ORDER, PPMD_MEMORY, LSTM_INPUT_SIZE,
+      LSTM_NUM_CELLS, LSTM_NUM_LAYERS, LSTM_HORIZON,
+      LSTM_LEARNING_RATE_X100000 / 100000.0f,
+      LSTM_GRADIENT_CLIP_X10 / 10.0f, UPDATE_LIMIT
+    );
+    return 1;
   }
 
   uint f_DEC = (argv[1][0]=='d');
   FILE* f = fopen(argv[2],"rb"); if( f==0 ) return 2;
   FILE* g = fopen(argv[3],"wb"); if( g==0 ) return 3;
-
-  // Parse optional parameters
-  int positional_index = 0;
-  for (int i = 4; i < argc; i++) {
-    char* arg = argv[i];
-    char* equals = strchr(arg, '=');
-
-    if (equals != NULL) {
-      // Named parameter: parse key=value
-      *equals = '\0';  // Split string at '='
-      char* key = arg;
-      char* value = equals + 1;
-
-      if (strcmp(key, "ppmd_order") == 0) {
-        ppmd_order = atoi(value);
-        positional_index = 1;
-      } else if (strcmp(key, "ppmd_memory") == 0) {
-        ppmd_memory = atoi(value);
-        positional_index = 2;
-      } else if (strcmp(key, "lstm_input_size") == 0) {
-        lstm_input_size = atoi(value);
-        positional_index = 3;
-      } else if (strcmp(key, "lstm_num_cells") == 0) {
-        lstm_num_cells = atoi(value);
-        positional_index = 4;
-      } else if (strcmp(key, "lstm_num_layers") == 0) {
-        lstm_num_layers = atoi(value);
-        positional_index = 5;
-      } else if (strcmp(key, "lstm_horizon") == 0) {
-        lstm_horizon = atoi(value);
-        positional_index = 6;
-      } else if (strcmp(key, "lstm_learning_rate") == 0) {
-        lstm_learning_rate = (float)atof(value);
-        positional_index = 7;
-      } else if (strcmp(key, "lstm_gradient_clip") == 0) {
-        lstm_gradient_clip = (float)atof(value);
-        positional_index = 8;
-      } else if (strcmp(key, "update_limit") == 0) {
-        update_limit = atoi(value);
-        positional_index = 9;
-      } else {
-        fprintf(stderr, "Unknown parameter: %s\n", key);
-        print_usage(argv[0]);
-        return 1;
-      }
-
-      *equals = '=';  // Restore original string
-    } else {
-      // Positional parameter
-      switch (positional_index) {
-        case 0: ppmd_order = atoi(arg); break;
-        case 1: ppmd_memory = atoi(arg); break;
-        case 2: lstm_input_size = atoi(arg); break;
-        case 3: lstm_num_cells = atoi(arg); break;
-        case 4: lstm_num_layers = atoi(arg); break;
-        case 5: lstm_horizon = atoi(arg); break;
-        case 6: lstm_learning_rate = (float)atof(arg); break;
-        case 7: lstm_gradient_clip = (float)atof(arg); break;
-        case 8: update_limit = atoi(arg); break;
-      }
-      positional_index++;
-    }
-  }
-
-  // Print parsed parameters
-  printf("Parameters: ppmd_order=%d ppmd_memory=%d lstm_input_size=%d lstm_num_cells=%d lstm_num_layers=%d lstm_horizon=%d lstm_learning_rate=%.3f lstm_gradient_clip=%.3f update_limit=%d\n",
-         ppmd_order, ppmd_memory, lstm_input_size, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip, update_limit);
-
-  lstm_learning_rate /= 100000;
-
-  // Set global UPDATE_LIMIT from command line parameter
-  //UPDATE_LIMIT = update_limit;
 
   uint i,j,c,pc=10,code,low,total=0,freq[CNUM],f_len,f_pos;
   for( i=0; i<CNUM; i++ ) total+=(freq[i]=1);
@@ -713,17 +632,12 @@ auto print_usage = [&](const char* program_name) {
 
   for( i=0,total=0; i<CNUM; i++ ) total+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
-auto byte_model_ = new PPMD(ppmd_order, ppmd_memory, cmap);
+  auto byte_model_ = new PPMD(PPMD_ORDER, PPMD_MEMORY, cmap);
 
-byte_model_->Byte_Model::ByteUpdate();
+  byte_model_->Byte_Model::ByteUpdate();
 
   srand(0xDEADBEEF);
-  //ByteModel* PM = new ByteModel( cmap, new Lstm(0, total, 90, 3, 10, 0.05, 2) );
-  //ByteModel* PM = new ByteModel( cmap, new Lstm(total, total, 90, 3, 10, 0.05, 2) );
-  Model* PM = new Model( cmap, new Lstm(lstm_input_size, total, lstm_num_cells, lstm_num_layers, lstm_horizon, lstm_learning_rate, lstm_gradient_clip, update_limit) );
-  //ByteModel* PM = new ByteModel( cmap, new Lstm(128, total, total, 3, 10, 0.05, 2) );
-//  ByteModel* PM = new ByteModel( cmap, new Lstm(128, total, 128, 3, 10, 0.05, 2) );
-//      vocab_size, new Lstm(vocab_size, vocab_size, 200, 1, 128, 0.03, 10));
+  Model<LstmType>* PM = new Model<LstmType>( cmap, new LstmType(total) );
 
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
