@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <memory>
 #include <numeric>
-#include <valarray>
+#include "valarray.inc"
 #include <vector>
 
 //#define INC_FLEN
