@@ -78,51 +78,44 @@ struct Sigmoid {
 };
 //--- #include "neuron-layer.hpp"
 
+template<uint NUM_CELLS, uint HORIZON, uint TRANSPOSE_SIZE>
 struct NeuronLayer {
-  void Init(uint input_size, uint num_cells, int horizon,
-    int offset) {
+  void Init(uint input_size, int offset) {
     uint i;
     int j;
-    num_cells_ = num_cells;
-    horizon_ = horizon;
     transpose_size_ = input_size - offset;
-    error_.resize(num_cells);
-    ivar_.resize(horizon);
-    gamma_.resize(num_cells);
-    for (i = 0; i < num_cells; ++i) gamma_[i] = 1.0;
-    gamma_u_.resize(num_cells);
-    gamma_m_.resize(num_cells);
-    gamma_v_.resize(num_cells);
-    beta_.resize(num_cells);
-    beta_u_.resize(num_cells);
-    beta_m_.resize(num_cells);
-    beta_v_.resize(num_cells);
-    weights_.resize(num_cells);
-    for (i = 0; i < num_cells; ++i) weights_[i].resize(input_size);
-    state_ = (float*)calloc(horizon * num_cells, sizeof(float));
-    update_.resize(num_cells);
-    for (i = 0; i < num_cells; ++i) update_[i].resize(input_size);
-    m_.resize(num_cells);
-    for (i = 0; i < num_cells; ++i) m_[i].resize(input_size);
-    v_.resize(num_cells);
-    for (i = 0; i < num_cells; ++i) v_[i].resize(input_size);
-    transpose_ = (float*)calloc((input_size - offset) * num_cells, sizeof(float));
-    norm_ = (float*)calloc(horizon * num_cells, sizeof(float));
+    error_.resize(NUM_CELLS);
+    ivar_.resize(HORIZON);
+    gamma_.resize(NUM_CELLS);
+    for (i = 0; i < NUM_CELLS; ++i) gamma_[i] = 1.0;
+    gamma_u_.resize(NUM_CELLS);
+    gamma_m_.resize(NUM_CELLS);
+    gamma_v_.resize(NUM_CELLS);
+    beta_.resize(NUM_CELLS);
+    beta_u_.resize(NUM_CELLS);
+    beta_m_.resize(NUM_CELLS);
+    beta_v_.resize(NUM_CELLS);
+    weights_.resize(NUM_CELLS);
+    for (i = 0; i < NUM_CELLS; ++i) weights_[i].resize(input_size);
+    for (i = 0; i < HORIZON * NUM_CELLS; ++i) state_[i] = 0;
+    update_.resize(NUM_CELLS);
+    for (i = 0; i < NUM_CELLS; ++i) update_[i].resize(input_size);
+    m_.resize(NUM_CELLS);
+    for (i = 0; i < NUM_CELLS; ++i) m_[i].resize(input_size);
+    v_.resize(NUM_CELLS);
+    for (i = 0; i < NUM_CELLS; ++i) v_[i].resize(input_size);
+    for (i = 0; i < TRANSPOSE_SIZE * NUM_CELLS; ++i) transpose_[i] = 0;
+    for (i = 0; i < HORIZON * NUM_CELLS; ++i) norm_[i] = 0;
   }
 
   std::vector<float> error_, ivar_, gamma_, gamma_u_, gamma_m_, gamma_v_, beta_, beta_u_, beta_m_, beta_v_;
   std::vector<std::vector<float>> weights_, update_, m_, v_;
-  float* norm_;
-  float* transpose_;
-  float* state_;
-  uint num_cells_;
-  uint horizon_;
+  float norm_[HORIZON * NUM_CELLS];
+  float transpose_[TRANSPOSE_SIZE * NUM_CELLS];
+  float state_[HORIZON * NUM_CELLS];
   uint transpose_size_;
 
   void Quit() {
-    free(norm_);
-    free(transpose_);
-    free(state_);
   }
 };
 //--- #include "lstm-layer.hpp"
@@ -140,9 +133,9 @@ struct LstmLayer {
     horizon_ = HORIZON;
     input_size_ = auxiliary_input_size;
     output_size_ = output_size;
-    forget_gate_.Init(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_);
-    input_node_.Init(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_);
-    output_gate_.Init(input_size, NUM_CELLS, HORIZON, output_size_ + input_size_);
+    forget_gate_.Init(input_size, output_size_ + input_size_);
+    input_node_.Init(input_size, output_size_ + input_size_);
+    output_gate_.Init(input_size, output_size_ + input_size_);
     for (i = 0; i < NUM_CELLS; ++i) {
       state_[i] = 0;
       state_error_[i] = 0;
@@ -241,28 +234,27 @@ struct LstmLayer {
   float last_state_[HORIZON][NUM_CELLS];
   uint num_cells_, epoch_, horizon_, input_size_, output_size_;
   qword update_steps_ = 0;
-  NeuronLayer forget_gate_, input_node_, output_gate_;
+  NeuronLayer<NUM_CELLS, HORIZON, 1 + NUM_CELLS * 2> forget_gate_, input_node_, output_gate_;
 
-  template<uint UPD_LIMIT>
   static void Adam(std::vector<float>* g, std::vector<float>* m, std::vector<float>* v, std::vector<float>* w, float learning_rate, float t) {
     const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
     float alpha;
     uint i;
-    if (t < UPD_LIMIT) {
+    if (t < UPDATE_LIMIT) {
       alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
     } else {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPD_LIMIT + 1.0f);
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
     }
     for (i = 0; i < m->size(); ++i) (*m)[i] *= beta1;
     for (i = 0; i < m->size(); ++i) (*m)[i] += (1.0f - beta1) * (*g)[i];
     for (i = 0; i < v->size(); ++i) (*v)[i] *= beta2;
     for (i = 0; i < v->size(); ++i) (*v)[i] += (1.0f - beta2) * (*g)[i] * (*g)[i];
-    if( t<UPD_LIMIT ) {
+    if( t<UPDATE_LIMIT ) {
       for (i = 0; i < w->size(); ++i)
         (*w)[i] -= alpha * (((*m)[i] / (float)(1.0f - pow(beta1, t))) / (sqrt((*v)[i] / (float)(1.0f - pow(beta2, t)) + eps)));
     } else {
       for (i = 0; i < w->size(); ++i)
-        (*w)[i] -= alpha * (((*m)[i] / (float)(1.0f - pow(beta1, UPD_LIMIT))) / (sqrt((*v)[i] / (float)(1.0f - pow(beta2, UPD_LIMIT)) + eps)));
+        (*w)[i] -= alpha * (((*m)[i] / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) / (sqrt((*v)[i] / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
     }
   }
 
@@ -282,24 +274,24 @@ struct LstmLayer {
     }
   }
 
-  void ForwardPass(NeuronLayer& neurons, const std::vector<float>& input, int input_symbol) {
+  void ForwardPass(NeuronLayer<NUM_CELLS, HORIZON, 1 + NUM_CELLS * 2>& neurons, const std::vector<float>& input, int input_symbol) {
     uint i, j;
     float f, sum;
     for (i = 0; i < num_cells_; ++i) {
       f = neurons.weights_[i][input_symbol];
       for (j = 0; j < input.size(); ++j) f += input[j] * neurons.weights_[i][output_size_ + j];
-      neurons.norm_[epoch_ * neurons.num_cells_ + i] = f;
+      neurons.norm_[epoch_ * NUM_CELLS + i] = f;
     }
     sum = 0;
-    for (i = 0; i < num_cells_; ++i) sum += neurons.norm_[epoch_ * neurons.num_cells_ + i] * neurons.norm_[epoch_ * neurons.num_cells_ + i];
+    for (i = 0; i < num_cells_; ++i) sum += neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.norm_[epoch_ * NUM_CELLS + i];
     neurons.ivar_[epoch_] = 1.0f / sqrt((sum / num_cells_) + 1e-5f);
-    for (i = 0; i < num_cells_; ++i) neurons.norm_[epoch_ * neurons.num_cells_ + i] *= neurons.ivar_[epoch_];
+    for (i = 0; i < num_cells_; ++i) neurons.norm_[epoch_ * NUM_CELLS + i] *= neurons.ivar_[epoch_];
     for (i = 0; i < num_cells_; ++i) {
-      neurons.state_[epoch_ * neurons.num_cells_ + i] = neurons.norm_[epoch_ * neurons.num_cells_ + i] * neurons.gamma_[i] + neurons.beta_[i];
+      neurons.state_[epoch_ * NUM_CELLS + i] = neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.gamma_[i] + neurons.beta_[i];
     }
   }
 
-  void BackwardPass(NeuronLayer& neurons, const std::vector<float>&input,int epoch, int layer, int input_symbol, float* hidden_error) {
+  void BackwardPass(NeuronLayer<NUM_CELLS, HORIZON, 1 + NUM_CELLS * 2>& neurons, const std::vector<float>&input,int epoch, int layer, int input_symbol, float* hidden_error) {
     uint i, j;
     int offset;
     float sum, f;
@@ -310,27 +302,27 @@ struct LstmLayer {
         for (j = 0; j < neurons.update_[i].size(); ++j) neurons.update_[i][j] = 0;
         offset = output_size_ + input_size_;
         for (j = 0; j < neurons.transpose_size_; ++j) {
-          neurons.transpose_[j * neurons.num_cells_ + i] = neurons.weights_[i][j + offset];
+          neurons.transpose_[j * NUM_CELLS + i] = neurons.weights_[i][j + offset];
         }
       }
     }
     for (i = 0; i < num_cells_; ++i) neurons.beta_u_[i] += neurons.error_[i];
-    for (i = 0; i < num_cells_; ++i) neurons.gamma_u_[i] += neurons.error_[i] * neurons.norm_[epoch * neurons.num_cells_ + i];
+    for (i = 0; i < num_cells_; ++i) neurons.gamma_u_[i] += neurons.error_[i] * neurons.norm_[epoch * NUM_CELLS + i];
     for (i = 0; i < num_cells_; ++i) neurons.error_[i] *= neurons.gamma_[i] * neurons.ivar_[epoch];
     sum = 0;
-    for (i = 0; i < num_cells_; ++i) sum += neurons.error_[i] * neurons.norm_[epoch * neurons.num_cells_ + i];
-    for (i = 0; i < num_cells_; ++i) neurons.error_[i] -= (sum / num_cells_) * neurons.norm_[epoch * neurons.num_cells_ + i];
+    for (i = 0; i < num_cells_; ++i) sum += neurons.error_[i] * neurons.norm_[epoch * NUM_CELLS + i];
+    for (i = 0; i < num_cells_; ++i) neurons.error_[i] -= (sum / num_cells_) * neurons.norm_[epoch * NUM_CELLS + i];
     if( layer>0 ) {
       for (i = 0; i < num_cells_; ++i) {
         f = 0;
-        for (j = 0; j < num_cells_; ++j) f += neurons.error_[j] * neurons.transpose_[(num_cells_ + i) * neurons.num_cells_ + j];
+        for (j = 0; j < num_cells_; ++j) f += neurons.error_[j] * neurons.transpose_[(num_cells_ + i) * NUM_CELLS + j];
         hidden_error[i] += f;
       }
     }
     if( epoch > 0 ) {
       for (i = 0; i < num_cells_; ++i) {
         f = 0;
-        for (j = 0; j < num_cells_; ++j) f += neurons.error_[j] * neurons.transpose_[i * neurons.num_cells_ + j];
+        for (j = 0; j < num_cells_; ++j) f += neurons.error_[j] * neurons.transpose_[i * NUM_CELLS + j];
         stored_error_[i] += f;
       }
     }
@@ -340,10 +332,10 @@ struct LstmLayer {
     }
     if (epoch == 0) {
       for (i = 0; i < num_cells_; ++i) {
-        Adam<UPDATE_LIMIT>(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i], &neurons.weights_[i], learning_rate_, update_steps_);
+        Adam(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i], &neurons.weights_[i], learning_rate_, update_steps_);
       }
-      Adam<UPDATE_LIMIT>(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_, &neurons.gamma_, learning_rate_, update_steps_);
-      Adam<UPDATE_LIMIT>(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_, &neurons.beta_, learning_rate_, update_steps_);
+      Adam(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_, &neurons.gamma_, learning_rate_, update_steps_);
+      Adam(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_, &neurons.beta_, learning_rate_, update_steps_);
     }
   }
 };
