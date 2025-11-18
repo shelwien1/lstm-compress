@@ -35,47 +35,6 @@ uint flen( FILE* f ) {
 #include "sh_v2f.inc"
 #include "ppmd.hpp"
 
-//--- #include "sigmoid.hpp"
-
-struct Sigmoid {
-
-  void Init(int logit_size) {
-    int i;
-    logit_size_ = logit_size;
-    logit_table_ = new float[logit_size_];
-    for (i = 0; i < logit_size_; ++i) {
-      logit_table_[i] = SlowLogit((i + 0.5f) / logit_size_);
-    }
-  }
-
-  void Quit() {
-    delete[] logit_table_;
-  }
-
-  float Logit(float p) const {
-    int index;
-    index = p * logit_size_;
-    if (index >= logit_size_) index = logit_size_ - 1;
-    else if (index < 0) index = 0;
-    return logit_table_[index];
-  }
-
-  static float Logistic(float p) {
-    return 1 / (1 + exp(-p));
-  }
-
-  static float FastLogistic(float p) {
-    return (0.5f * (p / (1.0f + fabsf(p)) + 1.0f));
-  }
-
- private:
-  float SlowLogit(float p) {
-    return log(p / (1 - p));
-  }
-
-  int logit_size_;
-  float* logit_table_;
-};
 //--- #include "neuron-layer.hpp"
 
 template<uint NUM_CELLS, uint HORIZON, uint TRANSPOSE_SIZE>
@@ -165,9 +124,9 @@ struct LstmLayer {
     ForwardPass(input_node_, input, input_symbol);
     ForwardPass(output_gate_, input, input_symbol);
     for (i = 0; i < num_cells_; ++i) {
-      forget_gate_.state_[epoch_ * num_cells_ + i] = Sigmoid::Logistic(forget_gate_.state_[epoch_ * num_cells_ + i]);
+      forget_gate_.state_[epoch_ * num_cells_ + i] = Logistic(forget_gate_.state_[epoch_ * num_cells_ + i]);
       input_node_.state_[epoch_ * num_cells_ + i] = tanh(input_node_.state_[epoch_ * num_cells_ + i]);
-      output_gate_.state_[epoch_ * num_cells_ + i] = Sigmoid::Logistic(output_gate_.state_[epoch_ * num_cells_ + i]);
+      output_gate_.state_[epoch_ * num_cells_ + i] = Logistic(output_gate_.state_[epoch_ * num_cells_ + i]);
     }
     for (i = 0; i < num_cells_; ++i) {
       input_gate_state_[epoch_][i] = 1.0f - forget_gate_.state_[epoch_ * num_cells_ + i];
@@ -221,6 +180,10 @@ struct LstmLayer {
 
   static inline float Rand() {
     return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+  }
+
+  static inline float Logistic(float p) {
+    return 1.0f / (1.0f + exp(-p));
   }
 
   float state_[NUM_CELLS];
