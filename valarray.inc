@@ -6,8 +6,29 @@
 #include <cmath>
 #include <algorithm>
 #include <iterator>
+#include <vector>
 
 namespace std {
+
+// Custom copy function with vectorization pragma
+template<typename InputIt, typename OutputIt>
+OutputIt copy1(InputIt first, InputIt last, OutputIt d_first) {
+    #pragma vector
+    while (first != last) {
+        *d_first++ = *first++;
+    }
+    return d_first;
+}
+
+// Custom accumulate function with vectorization pragma
+template<typename InputIt, typename T>
+T accumulate1(InputIt first, InputIt last, T init) {
+    #pragma vector
+    for (; first != last; ++first) {
+        init = init + *first;
+    }
+    return init;
+}
 
 // Forward declaration
 template<typename T> class valarray;
@@ -40,6 +61,7 @@ public:
     // Assignment from valarray
     slice_array& operator=(const valarray<T>& other) {
         size_t idx = slice_.start();
+        #pragma vector
         for (size_t i = 0; i < slice_.size(); ++i) {
             (*arr_)[idx] = other[i];
             idx += slice_.stride();
@@ -50,6 +72,7 @@ public:
     // Compound assignment operators
     slice_array& operator+=(const valarray<T>& other) {
         size_t idx = slice_.start();
+        #pragma vector
         for (size_t i = 0; i < slice_.size(); ++i) {
             (*arr_)[idx] += other[i];
             idx += slice_.stride();
@@ -59,6 +82,7 @@ public:
 
     slice_array& operator-=(const valarray<T>& other) {
         size_t idx = slice_.start();
+        #pragma vector
         for (size_t i = 0; i < slice_.size(); ++i) {
             (*arr_)[idx] -= other[i];
             idx += slice_.stride();
@@ -68,6 +92,7 @@ public:
 
     slice_array& operator*=(const valarray<T>& other) {
         size_t idx = slice_.start();
+        #pragma vector
         for (size_t i = 0; i < slice_.size(); ++i) {
             (*arr_)[idx] *= other[i];
             idx += slice_.stride();
@@ -80,89 +105,51 @@ private:
     slice slice_;
 };
 
-// Main valarray implementation
+// Main valarray implementation - wrapper around std::vector
 template<typename T>
 class valarray {
 public:
     // Constructors
-    valarray() : data_(nullptr), size_(0) {}
+    valarray() : data_() {}
 
-    explicit valarray(size_t n) : data_(nullptr), size_(n) {
-        if (n > 0) {
-            data_ = new T[n];
-            for (size_t i = 0; i < n; ++i) {
-                data_[i] = T();
-            }
-        }
-    }
+    explicit valarray(size_t n) : data_(n, T()) {}
 
-    valarray(const T& val, size_t n) : data_(nullptr), size_(n) {
-        if (n > 0) {
-            data_ = new T[n];
-            for (size_t i = 0; i < n; ++i) {
-                data_[i] = val;
-            }
-        }
-    }
+    valarray(const T& val, size_t n) : data_(n, val) {}
 
-    valarray(const T* p, size_t n) : data_(nullptr), size_(n) {
-        if (n > 0) {
-            data_ = new T[n];
-            for (size_t i = 0; i < n; ++i) {
-                data_[i] = p[i];
-            }
+    valarray(const T* p, size_t n) : data_(n) {
+        #pragma vector
+        for (size_t i = 0; i < n; ++i) {
+            data_[i] = p[i];
         }
     }
 
     // Copy constructor
-    valarray(const valarray& other) : data_(nullptr), size_(other.size_) {
-        if (size_ > 0) {
-            data_ = new T[size_];
-            for (size_t i = 0; i < size_; ++i) {
-                data_[i] = other.data_[i];
-            }
-        }
-    }
+    valarray(const valarray& other) : data_(other.data_) {}
 
     // Move constructor
-    valarray(valarray&& other) noexcept : data_(other.data_), size_(other.size_) {
-        other.data_ = nullptr;
-        other.size_ = 0;
-    }
+    valarray(valarray&& other) noexcept : data_(std::move(other.data_)) {}
 
-    // Destructor
-    ~valarray() {
-        delete[] data_;
-    }
+    // Destructor (vector handles cleanup automatically)
+    ~valarray() = default;
 
     // Assignment operators
     valarray& operator=(const valarray& other) {
         if (this != &other) {
-            if (size_ != other.size_) {
-                delete[] data_;
-                size_ = other.size_;
-                data_ = (size_ > 0) ? new T[size_] : nullptr;
-            }
-            for (size_t i = 0; i < size_; ++i) {
-                data_[i] = other.data_[i];
-            }
+            data_ = other.data_;
         }
         return *this;
     }
 
     valarray& operator=(valarray&& other) noexcept {
         if (this != &other) {
-            delete[] data_;
-            data_ = other.data_;
-            size_ = other.size_;
-            other.data_ = nullptr;
-            other.size_ = 0;
+            data_ = std::move(other.data_);
         }
         return *this;
     }
 
     valarray& operator=(const T& val) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] = val;
         }
         return *this;
@@ -178,28 +165,17 @@ public:
     }
 
     // Size and resize
-    size_t size() const { return size_; }
+    size_t size() const { return data_.size(); }
 
     void resize(size_t n, T val = T()) {
-        if (n != size_) {
-            T* new_data = (n > 0) ? new T[n] : nullptr;
-            size_t copy_size = (n < size_) ? n : size_;
-            for (size_t i = 0; i < copy_size; ++i) {
-                new_data[i] = data_[i];
-            }
-            for (size_t i = copy_size; i < n; ++i) {
-                new_data[i] = val;
-            }
-            delete[] data_;
-            data_ = new_data;
-            size_ = n;
-        }
+        data_.resize(n, val);
     }
 
     // Sum
     T sum() const {
         T result = T();
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             result += data_[i];
         }
         return result;
@@ -207,28 +183,32 @@ public:
 
     // Compound assignment with scalar
     valarray& operator*=(const T& val) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] *= val;
         }
         return *this;
     }
 
     valarray& operator/=(const T& val) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] /= val;
         }
         return *this;
     }
 
     valarray& operator+=(const T& val) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] += val;
         }
         return *this;
     }
 
     valarray& operator-=(const T& val) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] -= val;
         }
         return *this;
@@ -236,48 +216,52 @@ public:
 
     // Compound assignment with valarray
     valarray& operator*=(const valarray& other) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] *= other.data_[i];
         }
         return *this;
     }
 
     valarray& operator/=(const valarray& other) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] /= other.data_[i];
         }
         return *this;
     }
 
     valarray& operator+=(const valarray& other) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] += other.data_[i];
         }
         return *this;
     }
 
     valarray& operator-=(const valarray& other) {
-        for (size_t i = 0; i < size_; ++i) {
+        #pragma vector
+        for (size_t i = 0; i < data_.size(); ++i) {
             data_[i] -= other.data_[i];
         }
         return *this;
     }
 
     // Iterator support (for std::copy, std::begin, std::end)
-    T* begin() { return data_; }
-    const T* begin() const { return data_; }
-    T* end() { return data_ + size_; }
-    const T* end() const { return data_ + size_; }
+    T* begin() { return data_.data(); }
+    const T* begin() const { return data_.data(); }
+    T* end() { return data_.data() + data_.size(); }
+    const T* end() const { return data_.data() + data_.size(); }
 
 private:
-    T* data_;
-    size_t size_;
+    std::vector<T> data_;
 };
 
 // Binary operators - valarray op valarray
 template<typename T>
 valarray<T> operator+(const valarray<T>& lhs, const valarray<T>& rhs) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] + rhs[i];
     }
@@ -287,6 +271,7 @@ valarray<T> operator+(const valarray<T>& lhs, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator-(const valarray<T>& lhs, const valarray<T>& rhs) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] - rhs[i];
     }
@@ -296,6 +281,7 @@ valarray<T> operator-(const valarray<T>& lhs, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator*(const valarray<T>& lhs, const valarray<T>& rhs) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] * rhs[i];
     }
@@ -305,6 +291,7 @@ valarray<T> operator*(const valarray<T>& lhs, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator/(const valarray<T>& lhs, const valarray<T>& rhs) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] / rhs[i];
     }
@@ -315,6 +302,7 @@ valarray<T> operator/(const valarray<T>& lhs, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator+(const valarray<T>& lhs, const T& val) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] + val;
     }
@@ -324,6 +312,7 @@ valarray<T> operator+(const valarray<T>& lhs, const T& val) {
 template<typename T>
 valarray<T> operator-(const valarray<T>& lhs, const T& val) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] - val;
     }
@@ -333,6 +322,7 @@ valarray<T> operator-(const valarray<T>& lhs, const T& val) {
 template<typename T>
 valarray<T> operator*(const valarray<T>& lhs, const T& val) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] * val;
     }
@@ -342,6 +332,7 @@ valarray<T> operator*(const valarray<T>& lhs, const T& val) {
 template<typename T>
 valarray<T> operator/(const valarray<T>& lhs, const T& val) {
     valarray<T> result(lhs.size());
+    #pragma vector
     for (size_t i = 0; i < lhs.size(); ++i) {
         result[i] = lhs[i] / val;
     }
@@ -352,6 +343,7 @@ valarray<T> operator/(const valarray<T>& lhs, const T& val) {
 template<typename T>
 valarray<T> operator+(const T& val, const valarray<T>& rhs) {
     valarray<T> result(rhs.size());
+    #pragma vector
     for (size_t i = 0; i < rhs.size(); ++i) {
         result[i] = val + rhs[i];
     }
@@ -361,6 +353,7 @@ valarray<T> operator+(const T& val, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator-(const T& val, const valarray<T>& rhs) {
     valarray<T> result(rhs.size());
+    #pragma vector
     for (size_t i = 0; i < rhs.size(); ++i) {
         result[i] = val - rhs[i];
     }
@@ -370,6 +363,7 @@ valarray<T> operator-(const T& val, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator*(const T& val, const valarray<T>& rhs) {
     valarray<T> result(rhs.size());
+    #pragma vector
     for (size_t i = 0; i < rhs.size(); ++i) {
         result[i] = val * rhs[i];
     }
@@ -379,6 +373,7 @@ valarray<T> operator*(const T& val, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> operator/(const T& val, const valarray<T>& rhs) {
     valarray<T> result(rhs.size());
+    #pragma vector
     for (size_t i = 0; i < rhs.size(); ++i) {
         result[i] = val / rhs[i];
     }
@@ -389,6 +384,7 @@ valarray<T> operator/(const T& val, const valarray<T>& rhs) {
 template<typename T>
 valarray<T> sqrt(const valarray<T>& arr) {
     valarray<T> result(arr.size());
+    #pragma vector
     for (size_t i = 0; i < arr.size(); ++i) {
         result[i] = std::sqrt(arr[i]);
     }
@@ -398,6 +394,7 @@ valarray<T> sqrt(const valarray<T>& arr) {
 template<typename T>
 valarray<T> exp(const valarray<T>& arr) {
     valarray<T> result(arr.size());
+    #pragma vector
     for (size_t i = 0; i < arr.size(); ++i) {
         result[i] = std::exp(arr[i]);
     }
@@ -407,6 +404,7 @@ valarray<T> exp(const valarray<T>& arr) {
 template<typename T>
 valarray<T> tanh(const valarray<T>& arr) {
     valarray<T> result(arr.size());
+    #pragma vector
     for (size_t i = 0; i < arr.size(); ++i) {
         result[i] = std::tanh(arr[i]);
     }
@@ -416,6 +414,7 @@ valarray<T> tanh(const valarray<T>& arr) {
 template<typename T>
 valarray<T> pow(const valarray<T>& arr, const T& exponent) {
     valarray<T> result(arr.size());
+    #pragma vector
     for (size_t i = 0; i < arr.size(); ++i) {
         result[i] = std::pow(arr[i], exponent);
     }
