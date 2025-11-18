@@ -35,55 +35,13 @@ uint flen( FILE* f ) {
 #include "sh_v2f.inc"
 #include "ppmd.hpp"
 
-//--- #include "sigmoid.hpp"
-
-struct Sigmoid {
-
-  void Init(int logit_size) {
-    int i;
-    logit_size_ = logit_size;
-    logit_table_ = new float[logit_size_];
-    for (i = 0; i < logit_size_; ++i) {
-      logit_table_[i] = SlowLogit((i + 0.5f) / logit_size_);
-    }
-  }
-
-  void Quit() {
-    delete[] logit_table_;
-  }
-
-  float Logit(float p) const {
-    int index;
-    index = p * logit_size_;
-    if (index >= logit_size_) index = logit_size_ - 1;
-    else if (index < 0) index = 0;
-    return logit_table_[index];
-  }
-
-  static float Logistic(float p) {
-    return 1 / (1 + exp(-p));
-  }
-
-  static float FastLogistic(float p) {
-    return (0.5f * (p / (1.0f + fabsf(p)) + 1.0f));
-  }
-
- private:
-  float SlowLogit(float p) {
-    return log(p / (1 - p));
-  }
-
-  int logit_size_;
-  float* logit_table_;
-};
 //--- #include "neuron-layer.hpp"
 
 template<uint NUM_CELLS, uint HORIZON, uint TRANSPOSE_SIZE>
 struct NeuronLayer {
-  void Init(uint input_size, int offset) {
+  void Init(uint input_size) {
     uint i;
     int j;
-    transpose_size_ = input_size - offset;
     error_.resize(NUM_CELLS);
     ivar_.resize(HORIZON);
     gamma_.resize(NUM_CELLS);
@@ -113,29 +71,27 @@ struct NeuronLayer {
   float norm_[HORIZON * NUM_CELLS];
   float transpose_[TRANSPOSE_SIZE * NUM_CELLS];
   float state_[HORIZON * NUM_CELLS];
-  uint transpose_size_;
 
   void Quit() {
   }
 };
 //--- #include "lstm-layer.hpp"
 
-template<uint NUM_CELLS, uint HORIZON,uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000,uint UPDATE_LIMIT>
+template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON,uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000,uint UPDATE_LIMIT>
 struct LstmLayer {
   static constexpr float gradient_clip_ = GRADIENT_CLIP_X10 / 10.0f;
   static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
 
-  void Init(uint input_size, uint auxiliary_input_size,uint output_size) {
+  void Init(uint input_size, uint output_size) {
     uint i, h, j;
     float val, low, range;
     num_cells_ = NUM_CELLS;
     epoch_ = 0;
     horizon_ = HORIZON;
-    input_size_ = auxiliary_input_size;
     output_size_ = output_size;
-    forget_gate_.Init(input_size, output_size_ + input_size_);
-    input_node_.Init(input_size, output_size_ + input_size_);
-    output_gate_.Init(input_size, output_size_ + input_size_);
+    forget_gate_.Init(input_size);
+    input_node_.Init(input_size);
+    output_gate_.Init(input_size);
     for (i = 0; i < NUM_CELLS; ++i) {
       state_[i] = 0;
       state_error_[i] = 0;
@@ -148,7 +104,7 @@ struct LstmLayer {
         last_state_[h][i] = 0;
       }
     }
-    val = sqrt(6.0f / float(input_size_ + output_size_));
+    val = sqrt(6.0f / float(INPUT_SIZE + output_size_));
     low = -val;
     range = 2 * val;
     for (i = 0; i < num_cells_; ++i) {
@@ -168,9 +124,9 @@ struct LstmLayer {
     ForwardPass(input_node_, input, input_symbol);
     ForwardPass(output_gate_, input, input_symbol);
     for (i = 0; i < num_cells_; ++i) {
-      forget_gate_.state_[epoch_ * num_cells_ + i] = Sigmoid::Logistic(forget_gate_.state_[epoch_ * num_cells_ + i]);
+      forget_gate_.state_[epoch_ * num_cells_ + i] = Logistic(forget_gate_.state_[epoch_ * num_cells_ + i]);
       input_node_.state_[epoch_ * num_cells_ + i] = tanh(input_node_.state_[epoch_ * num_cells_ + i]);
-      output_gate_.state_[epoch_ * num_cells_ + i] = Sigmoid::Logistic(output_gate_.state_[epoch_ * num_cells_ + i]);
+      output_gate_.state_[epoch_ * num_cells_ + i] = Logistic(output_gate_.state_[epoch_ * num_cells_ + i]);
     }
     for (i = 0; i < num_cells_; ++i) {
       input_gate_state_[epoch_][i] = 1.0f - forget_gate_.state_[epoch_ * num_cells_ + i];
@@ -226,13 +182,17 @@ struct LstmLayer {
     return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
   }
 
+  static inline float Logistic(float p) {
+    return 1.0f / (1.0f + exp(-p));
+  }
+
   float state_[NUM_CELLS];
   float state_error_[NUM_CELLS];
   float stored_error_[NUM_CELLS];
   float tanh_state_[HORIZON][NUM_CELLS];
   float input_gate_state_[HORIZON][NUM_CELLS];
   float last_state_[HORIZON][NUM_CELLS];
-  uint num_cells_, epoch_, horizon_, input_size_, output_size_;
+  uint num_cells_, epoch_, horizon_, output_size_;
   qword update_steps_ = 0;
   NeuronLayer<NUM_CELLS, HORIZON, 1 + NUM_CELLS * 2> forget_gate_, input_node_, output_gate_;
 
@@ -300,8 +260,8 @@ struct LstmLayer {
       for (i = 0; i < neurons.beta_u_.size(); ++i) neurons.beta_u_[i] = 0;
       for (i = 0; i < num_cells_; ++i) {
         for (j = 0; j < neurons.update_[i].size(); ++j) neurons.update_[i][j] = 0;
-        offset = output_size_ + input_size_;
-        for (j = 0; j < neurons.transpose_size_; ++j) {
+        offset = output_size_ + INPUT_SIZE;
+        for (j = 0; j < 1 + NUM_CELLS * 2; ++j) {
           neurons.transpose_[j * NUM_CELLS + i] = neurons.weights_[i][j + offset];
         }
       }
@@ -343,7 +303,7 @@ struct LstmLayer {
 
 template<uint INPUT_SIZE, uint NUM_CELLS, uint NUM_LAYERS,uint HORIZON, uint GRADIENT_CLIP_X10,uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
 struct Lstm {
-  using LstmLayerType = LstmLayer<NUM_CELLS, HORIZON, GRADIENT_CLIP_X10,LEARNING_RATE_X100000, UPDATE_LIMIT>;
+  using LstmLayerType = LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10,LEARNING_RATE_X100000, UPDATE_LIMIT>;
   static constexpr float learning_rate_ = LEARNING_RATE_X100000 / 100000.0f;
 
   NOINLINE
@@ -369,7 +329,6 @@ struct Lstm {
     num_cells_ = NUM_CELLS;
     epoch_ = 0;
     horizon_ = HORIZON;
-    input_size_ = INPUT_SIZE;
     output_size_ = output_size;
     for (i = 0; i < NUM_CELLS * NUM_LAYERS + 1; ++i) hidden_[i] = 0;
     hidden_[NUM_CELLS * NUM_LAYERS] = 1;
@@ -381,7 +340,7 @@ struct Lstm {
         layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
       }
     }
-    for (i = 0; i < NUM_LAYERS; ++i) layers_[i].Init(layer_input_[0][i].size() + output_size, INPUT_SIZE, output_size);
+    for (i = 0; i < NUM_LAYERS; ++i) layers_[i].Init(layer_input_[0][i].size() + output_size, output_size);
   }
 
   void Quit() {}
@@ -390,7 +349,7 @@ struct Lstm {
   void SetInput(const float* input) {
     uint i, j;
     for (i = 0; i < NUM_LAYERS; ++i) {
-      for (j = 0; j < input_size_; ++j) layer_input_[epoch_][i][j] = input[j];
+      for (j = 0; j < INPUT_SIZE; ++j) layer_input_[epoch_][i][j] = input[j];
     }
   }
 
@@ -440,11 +399,11 @@ struct Lstm {
     for (i = 0; i < NUM_LAYERS; ++i) {
       hidden_offset = i * num_cells_;
       for (j = 0; j < num_cells_; ++j) {
-        layer_input_[epoch_][i][input_size_ + j] = hidden_[hidden_offset + j];
+        layer_input_[epoch_][i][INPUT_SIZE + j] = hidden_[hidden_offset + j];
       }
       layers_[i].ForwardPass(layer_input_[epoch_][i], input, hidden_, i * num_cells_);
       if (i < NUM_LAYERS - 1) {
-        dest_offset = num_cells_ + input_size_;
+        dest_offset = num_cells_ + INPUT_SIZE;
         for (j = 0; j < num_cells_; ++j) {
           layer_input_[epoch_][i + 1][dest_offset + j] = hidden_[hidden_offset + j];
         }
@@ -472,7 +431,7 @@ struct Lstm {
   std::vector<std::vector<std::vector<float>>> layer_input_;
   std::vector<std::vector<std::vector<float>>> output_layer_;
   std::vector<std::vector<float>> output_;
-  uint num_cells_, epoch_, horizon_, input_size_, output_size_;
+  uint num_cells_, epoch_, horizon_, output_size_;
   int last_input_;
 };
 //--- #include "byte-model.hpp"
