@@ -119,6 +119,7 @@ struct LstmLayer {
   float last_state_[HORIZON][NUM_CELLS_a];
   uint num_cells_, epoch_, horizon_, output_size_;
   qword update_steps_;
+  float inv_num_cells_;  // Precalculated reciprocal for divisions
   t_NeuronLayer forget_gate_;
   t_NeuronLayer input_node_;
   t_NeuronLayer output_gate_;
@@ -144,6 +145,7 @@ struct LstmLayer {
     InitializeTables();
     update_steps_ = 0;
     num_cells_ = NUM_CELLS;
+    inv_num_cells_ = 1.0f / NUM_CELLS;  // Precalculate reciprocal
     epoch_ = 0;
     horizon_ = HORIZON;
     output_size_ = output_size;
@@ -245,7 +247,9 @@ struct LstmLayer {
   }
 
   static void Adam(float* g, float* m, float* v, float* w, uint size, float learning_rate, float t) {
-    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    const float beta1 = 0.025f, beta2 = 0.9999f, eps = 1e-6f;
+    const float one_minus_beta1 = 0.975f;   // Precalculated: 1.0f - beta1
+    const float one_minus_beta2 = 0.0001f;  // Precalculated: 1.0f - beta2
     float alpha, inv_beta1_bias, inv_beta2_bias;
     uint i;
     uint t_idx = (t < UPDATE_LIMIT) ? (uint)t : UPDATE_LIMIT;
@@ -256,9 +260,9 @@ struct LstmLayer {
     inv_beta2_bias = inv_beta2_bias_table_[t_idx];
 
     for (i = 0; i < size; ++i) m[i] *= beta1;
-    for (i = 0; i < size; ++i) m[i] += (1.0f - beta1) * g[i];
+    for (i = 0; i < size; ++i) m[i] += one_minus_beta1 * g[i];
     for (i = 0; i < size; ++i) v[i] *= beta2;
-    for (i = 0; i < size; ++i) v[i] += (1.0f - beta2) * g[i] * g[i];
+    for (i = 0; i < size; ++i) v[i] += one_minus_beta2 * g[i] * g[i];
 
     // Simplified computation using precalculated bias correction terms
     for (i = 0; i < size; ++i) {
@@ -286,7 +290,7 @@ struct LstmLayer {
     }
     sum = 0;
     for (i = 0; i < num_cells_; ++i) sum += neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.norm_[epoch_ * NUM_CELLS + i];
-    neurons.ivar_[epoch_] = 1.0f / sqrt((sum / num_cells_) + 1e-5f);
+    neurons.ivar_[epoch_] = 1.0f / sqrt((sum * inv_num_cells_) + 1e-5f);
     for (i = 0; i < num_cells_; ++i) neurons.norm_[epoch_ * NUM_CELLS + i] *= neurons.ivar_[epoch_];
     for (i = 0; i < num_cells_; ++i) {
       neurons.state_[epoch_ * NUM_CELLS + i] = neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.gamma_[i] + neurons.beta_[i];
@@ -313,7 +317,7 @@ struct LstmLayer {
     for (i = 0; i < num_cells_; ++i) neurons.error_[i] *= neurons.gamma_[i] * neurons.ivar_[epoch];
     sum = 0;
     for (i = 0; i < num_cells_; ++i) sum += neurons.error_[i] * neurons.norm_[epoch * NUM_CELLS + i];
-    for (i = 0; i < num_cells_; ++i) neurons.error_[i] -= (sum / num_cells_) * neurons.norm_[epoch * NUM_CELLS + i];
+    for (i = 0; i < num_cells_; ++i) neurons.error_[i] -= (sum * inv_num_cells_) * neurons.norm_[epoch * NUM_CELLS + i];
     if( layer>0 ) {
       for (i = 0; i < num_cells_; ++i) {
         f = 0;
