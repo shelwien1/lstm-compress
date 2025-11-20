@@ -243,7 +243,15 @@ struct LstmLayer {
   }
 
   static inline float Logistic(float p) {
-    return 1.0f / (1.0f + exp(-p));
+    // Numerically stable sigmoid function
+    // For p >= 0: use 1 / (1 + exp(-p))
+    // For p < 0: use exp(p) / (1 + exp(p)) to avoid overflow
+    if (p >= 0.0f) {
+      return 1.0f / (1.0f + exp(-p));
+    } else {
+      float exp_p = exp(p);
+      return exp_p / (1.0f + exp_p);
+    }
   }
 
   static void Adam(float* g, float* m, float* v, float* w, uint size, float learning_rate, float t) {
@@ -265,10 +273,12 @@ struct LstmLayer {
     for (i = 0; i < size; ++i) v[i] += one_minus_beta2 * g[i] * g[i];
 
     // Simplified computation using precalculated bias correction terms
+    // Replace division with multiplication by reciprocal for performance
     for (i = 0; i < size; ++i) {
       float m_hat = m[i] * inv_beta1_bias;
       float v_hat = v[i] * inv_beta2_bias;
-      w[i] -= alpha * (m_hat / sqrt(v_hat + eps));
+      float inv_sqrt_v = 1.0f / sqrt(v_hat + eps);
+      w[i] -= alpha * m_hat * inv_sqrt_v;
     }
   }
 
@@ -290,6 +300,7 @@ struct LstmLayer {
     }
     sum = 0;
     for (i = 0; i < num_cells_; ++i) sum += neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.norm_[epoch_ * NUM_CELLS + i];
+    // Store inverse of standard deviation for normalization (rsqrt pattern)
     neurons.ivar_[epoch_] = 1.0f / sqrt((sum * inv_num_cells_) + 1e-5f);
     for (i = 0; i < num_cells_; ++i) neurons.norm_[epoch_ * NUM_CELLS + i] *= neurons.ivar_[epoch_];
     for (i = 0; i < num_cells_; ++i) {
@@ -504,14 +515,23 @@ struct Lstm {
         }
       }
     }
+    // Compute logits and find max for numerical stability
+    float max_logit = -1e38f;
     for (i = 0; i < output_size_; ++i) {
       sum = 0;
       for (j = 0; j < NUM_CELLS * NUM_LAYERS + 1; ++j) sum += hidden_[j] * output_layer_[epoch_][i][j];
-      output_[epoch_][i] = exp(sum);
+      output_[epoch_][i] = sum;
+      if (sum > max_logit) max_logit = sum;
     }
+    // Stable softmax: subtract max before exp
     sum = 0;
-    for (i = 0; i < output_size_; ++i) sum += output_[epoch_][i];
-    for (i = 0; i < output_size_; ++i) output_[epoch_][i] /= sum;
+    for (i = 0; i < output_size_; ++i) {
+      output_[epoch_][i] = exp(output_[epoch_][i] - max_logit);
+      sum += output_[epoch_][i];
+    }
+    // Normalize using multiplication by reciprocal
+    float inv_sum = 1.0f / sum;
+    for (i = 0; i < output_size_; ++i) output_[epoch_][i] *= inv_sum;
     epoch = epoch_;
     ++epoch_;
     if (epoch_ == horizon_) epoch_ = 0;
