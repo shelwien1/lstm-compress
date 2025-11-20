@@ -224,7 +224,7 @@ struct LstmLayer {
   }
 
   static void Adam(float* g, float* m, float* v, float* w, uint size, float learning_rate, float t) {
-    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    const float beta1 = 0.01, beta2 = 0.9999, eps = 1e-6f;
     float alpha;
     uint i;
     if (t < UPDATE_LIMIT) {
@@ -587,7 +587,7 @@ constexpr uint LSTM_INPUT_SIZE = 128;
 constexpr uint LSTM_NUM_CELLS = 90;
 constexpr uint LSTM_NUM_LAYERS = 2;
 constexpr uint LSTM_HORIZON = 73;
-constexpr uint LSTM_LEARNING_RATE_X100000 = 7200;  // 0.072 * 100000
+constexpr uint LSTM_LEARNING_RATE_X100000 = 5000;  // 0.05 * 100000
 constexpr uint LSTM_GRADIENT_CLIP_X10 = 20;         // 2.0 * 10
 constexpr uint UPDATE_LIMIT = 3000;
 
