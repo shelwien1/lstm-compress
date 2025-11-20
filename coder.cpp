@@ -105,12 +105,6 @@ struct LstmLayer {
   static constexpr uint NUM_CELLS_a = AlignUp(NUM_CELLS,ROW_a);
   static constexpr uint HORIZON_a = AlignUp(HORIZON,ROW_a);
 
-  // Precalculated lookup tables for Adam optimizer
-  static float alpha_table_[UPDATE_LIMIT + 1];
-  static float inv_beta1_bias_table_[UPDATE_LIMIT + 1];
-  static float inv_beta2_bias_table_[UPDATE_LIMIT + 1];
-  static bool tables_initialized_;
-
   float state_[NUM_CELLS_a];
   float state_error_[NUM_CELLS_a];
   float stored_error_[NUM_CELLS_a];
@@ -119,33 +113,16 @@ struct LstmLayer {
   float last_state_[HORIZON][NUM_CELLS_a];
   uint num_cells_, epoch_, horizon_, output_size_;
   qword update_steps_;
-  float inv_num_cells_;  // Precalculated reciprocal for divisions
   t_NeuronLayer forget_gate_;
   t_NeuronLayer input_node_;
   t_NeuronLayer output_gate_;
-
-  static void InitializeTables() {
-    if (tables_initialized_) return;
-    const float beta1 = 0.025f, beta2 = 0.9999f;
-    const float learning_rate = learning_rate_;
-
-    // Precompute alpha values for all timesteps
-    for (uint t = 1; t <= UPDATE_LIMIT; ++t) {
-      alpha_table_[t] = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
-      inv_beta1_bias_table_[t] = 1.0f / (1.0f - pow(beta1, (float)t));
-      inv_beta2_bias_table_[t] = 1.0f / (1.0f - pow(beta2, (float)t));
-    }
-    tables_initialized_ = true;
-  }
 
   void Init(uint input_size, uint output_size) {
     uint i, h, j;
     float val, low, range;
 //printf( "LstmLayer @ %I64X\n", this );
-    InitializeTables();
     update_steps_ = 0;
     num_cells_ = NUM_CELLS;
-    inv_num_cells_ = 1.0f / NUM_CELLS;  // Precalculate reciprocal
     epoch_ = 0;
     horizon_ = HORIZON;
     output_size_ = output_size;
@@ -243,42 +220,28 @@ struct LstmLayer {
   }
 
   static inline float Logistic(float p) {
-    // Numerically stable sigmoid function
-    // For p >= 0: use 1 / (1 + exp(-p))
-    // For p < 0: use exp(p) / (1 + exp(p)) to avoid overflow
-    if (p >= 0.0f) {
-      return 1.0f / (1.0f + exp(-p));
-    } else {
-      float exp_p = exp(p);
-      return exp_p / (1.0f + exp_p);
-    }
+    return 1.0f / (1.0f + exp(-p));
   }
 
   static void Adam(float* g, float* m, float* v, float* w, uint size, float learning_rate, float t) {
-    const float beta1 = 0.025f, beta2 = 0.9999f, eps = 1e-6f;
-    const float one_minus_beta1 = 0.975f;   // Precalculated: 1.0f - beta1
-    const float one_minus_beta2 = 0.0001f;  // Precalculated: 1.0f - beta2
-    float alpha, inv_beta1_bias, inv_beta2_bias;
+    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    float alpha;
     uint i;
-    uint t_idx = (t < UPDATE_LIMIT) ? (uint)t : UPDATE_LIMIT;
-
-    // Use precalculated values from lookup tables
-    alpha = alpha_table_[t_idx];
-    inv_beta1_bias = inv_beta1_bias_table_[t_idx];
-    inv_beta2_bias = inv_beta2_bias_table_[t_idx];
-
+    if (t < UPDATE_LIMIT) {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
+    } else {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
+    }
     for (i = 0; i < size; ++i) m[i] *= beta1;
-    for (i = 0; i < size; ++i) m[i] += one_minus_beta1 * g[i];
+    for (i = 0; i < size; ++i) m[i] += (1.0f - beta1) * g[i];
     for (i = 0; i < size; ++i) v[i] *= beta2;
-    for (i = 0; i < size; ++i) v[i] += one_minus_beta2 * g[i] * g[i];
-
-    // Simplified computation using precalculated bias correction terms
-    // Replace division with multiplication by reciprocal for performance
-    for (i = 0; i < size; ++i) {
-      float m_hat = m[i] * inv_beta1_bias;
-      float v_hat = v[i] * inv_beta2_bias;
-      float inv_sqrt_v = 1.0f / sqrt(v_hat + eps);
-      w[i] -= alpha * m_hat * inv_sqrt_v;
+    for (i = 0; i < size; ++i) v[i] += (1.0f - beta2) * g[i] * g[i];
+    if( t<UPDATE_LIMIT ) {
+      for (i = 0; i < size; ++i)
+        w[i] -= alpha * ((m[i] / (float)(1.0f - pow(beta1, t))) / (sqrt(v[i] / (float)(1.0f - pow(beta2, t)) + eps)));
+    } else {
+      for (i = 0; i < size; ++i)
+        w[i] -= alpha * ((m[i] / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) / (sqrt(v[i] / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
     }
   }
 
@@ -300,8 +263,7 @@ struct LstmLayer {
     }
     sum = 0;
     for (i = 0; i < num_cells_; ++i) sum += neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.norm_[epoch_ * NUM_CELLS + i];
-    // Store inverse of standard deviation for normalization (rsqrt pattern)
-    neurons.ivar_[epoch_] = 1.0f / sqrt((sum * inv_num_cells_) + 1e-5f);
+    neurons.ivar_[epoch_] = 1.0f / sqrt((sum / num_cells_) + 1e-5f);
     for (i = 0; i < num_cells_; ++i) neurons.norm_[epoch_ * NUM_CELLS + i] *= neurons.ivar_[epoch_];
     for (i = 0; i < num_cells_; ++i) {
       neurons.state_[epoch_ * NUM_CELLS + i] = neurons.norm_[epoch_ * NUM_CELLS + i] * neurons.gamma_[i] + neurons.beta_[i];
@@ -328,7 +290,7 @@ struct LstmLayer {
     for (i = 0; i < num_cells_; ++i) neurons.error_[i] *= neurons.gamma_[i] * neurons.ivar_[epoch];
     sum = 0;
     for (i = 0; i < num_cells_; ++i) sum += neurons.error_[i] * neurons.norm_[epoch * NUM_CELLS + i];
-    for (i = 0; i < num_cells_; ++i) neurons.error_[i] -= (sum * inv_num_cells_) * neurons.norm_[epoch * NUM_CELLS + i];
+    for (i = 0; i < num_cells_; ++i) neurons.error_[i] -= (sum / num_cells_) * neurons.norm_[epoch * NUM_CELLS + i];
     if( layer>0 ) {
       for (i = 0; i < num_cells_; ++i) {
         f = 0;
@@ -356,20 +318,6 @@ struct LstmLayer {
     }
   }
 };
-
-// Static member definitions for LstmLayer lookup tables
-template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
-float LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::alpha_table_[UPDATE_LIMIT + 1];
-
-template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
-float LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::inv_beta1_bias_table_[UPDATE_LIMIT + 1];
-
-template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
-float LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::inv_beta2_bias_table_[UPDATE_LIMIT + 1];
-
-template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
-bool LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::tables_initialized_ = false;
-
 //--- #include "lstm.hpp"
 
 template<uint INPUT_SIZE, uint NUM_CELLS, uint NUM_LAYERS,uint HORIZON, uint GRADIENT_CLIP_X10,uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
@@ -515,23 +463,14 @@ struct Lstm {
         }
       }
     }
-    // Compute logits and find max for numerical stability
-    float max_logit = -1e38f;
     for (i = 0; i < output_size_; ++i) {
       sum = 0;
       for (j = 0; j < NUM_CELLS * NUM_LAYERS + 1; ++j) sum += hidden_[j] * output_layer_[epoch_][i][j];
-      output_[epoch_][i] = sum;
-      if (sum > max_logit) max_logit = sum;
+      output_[epoch_][i] = exp(sum);
     }
-    // Stable softmax: subtract max before exp
     sum = 0;
-    for (i = 0; i < output_size_; ++i) {
-      output_[epoch_][i] = exp(output_[epoch_][i] - max_logit);
-      sum += output_[epoch_][i];
-    }
-    // Normalize using multiplication by reciprocal
-    float inv_sum = 1.0f / sum;
-    for (i = 0; i < output_size_; ++i) output_[epoch_][i] *= inv_sum;
+    for (i = 0; i < output_size_; ++i) sum += output_[epoch_][i];
+    for (i = 0; i < output_size_; ++i) output_[epoch_][i] /= sum;
     epoch = epoch_;
     ++epoch_;
     if (epoch_ == horizon_) epoch_ = 0;
