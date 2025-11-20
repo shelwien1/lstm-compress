@@ -105,6 +105,12 @@ struct LstmLayer {
   static constexpr uint NUM_CELLS_a = AlignUp(NUM_CELLS,ROW_a);
   static constexpr uint HORIZON_a = AlignUp(HORIZON,ROW_a);
 
+  // Precalculated lookup tables for Adam optimizer
+  static float alpha_table_[UPDATE_LIMIT + 1];
+  static float inv_beta1_bias_table_[UPDATE_LIMIT + 1];
+  static float inv_beta2_bias_table_[UPDATE_LIMIT + 1];
+  static bool tables_initialized_;
+
   float state_[NUM_CELLS_a];
   float state_error_[NUM_CELLS_a];
   float stored_error_[NUM_CELLS_a];
@@ -117,10 +123,25 @@ struct LstmLayer {
   t_NeuronLayer input_node_;
   t_NeuronLayer output_gate_;
 
+  static void InitializeTables() {
+    if (tables_initialized_) return;
+    const float beta1 = 0.025f, beta2 = 0.9999f;
+    const float learning_rate = learning_rate_;
+
+    // Precompute alpha values for all timesteps
+    for (uint t = 1; t <= UPDATE_LIMIT; ++t) {
+      alpha_table_[t] = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
+      inv_beta1_bias_table_[t] = 1.0f / (1.0f - pow(beta1, (float)t));
+      inv_beta2_bias_table_[t] = 1.0f / (1.0f - pow(beta2, (float)t));
+    }
+    tables_initialized_ = true;
+  }
+
   void Init(uint input_size, uint output_size) {
     uint i, h, j;
     float val, low, range;
 //printf( "LstmLayer @ %I64X\n", this );
+    InitializeTables();
     update_steps_ = 0;
     num_cells_ = NUM_CELLS;
     epoch_ = 0;
@@ -225,23 +246,25 @@ struct LstmLayer {
 
   static void Adam(float* g, float* m, float* v, float* w, uint size, float learning_rate, float t) {
     const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
-    float alpha;
+    float alpha, inv_beta1_bias, inv_beta2_bias;
     uint i;
-    if (t < UPDATE_LIMIT) {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
-    } else {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
-    }
+    uint t_idx = (t < UPDATE_LIMIT) ? (uint)t : UPDATE_LIMIT;
+
+    // Use precalculated values from lookup tables
+    alpha = alpha_table_[t_idx];
+    inv_beta1_bias = inv_beta1_bias_table_[t_idx];
+    inv_beta2_bias = inv_beta2_bias_table_[t_idx];
+
     for (i = 0; i < size; ++i) m[i] *= beta1;
     for (i = 0; i < size; ++i) m[i] += (1.0f - beta1) * g[i];
     for (i = 0; i < size; ++i) v[i] *= beta2;
     for (i = 0; i < size; ++i) v[i] += (1.0f - beta2) * g[i] * g[i];
-    if( t<UPDATE_LIMIT ) {
-      for (i = 0; i < size; ++i)
-        w[i] -= alpha * ((m[i] / (float)(1.0f - pow(beta1, t))) / (sqrt(v[i] / (float)(1.0f - pow(beta2, t)) + eps)));
-    } else {
-      for (i = 0; i < size; ++i)
-        w[i] -= alpha * ((m[i] / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) / (sqrt(v[i] / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
+
+    // Simplified computation using precalculated bias correction terms
+    for (i = 0; i < size; ++i) {
+      float m_hat = m[i] * inv_beta1_bias;
+      float v_hat = v[i] * inv_beta2_bias;
+      w[i] -= alpha * (m_hat / sqrt(v_hat + eps));
     }
   }
 
@@ -318,6 +341,20 @@ struct LstmLayer {
     }
   }
 };
+
+// Static member definitions for LstmLayer lookup tables
+template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
+float LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::alpha_table_[UPDATE_LIMIT + 1];
+
+template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
+float LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::inv_beta1_bias_table_[UPDATE_LIMIT + 1];
+
+template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
+float LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::inv_beta2_bias_table_[UPDATE_LIMIT + 1];
+
+template<uint INPUT_SIZE, uint NUM_CELLS, uint HORIZON, uint GRADIENT_CLIP_X10, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
+bool LstmLayer<INPUT_SIZE, NUM_CELLS, HORIZON, GRADIENT_CLIP_X10, LEARNING_RATE_X100000, UPDATE_LIMIT>::tables_initialized_ = false;
+
 //--- #include "lstm.hpp"
 
 template<uint INPUT_SIZE, uint NUM_CELLS, uint NUM_LAYERS,uint HORIZON, uint GRADIENT_CLIP_X10,uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
