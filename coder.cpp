@@ -463,13 +463,20 @@ struct Lstm {
         }
       }
     }
+    // Compute logits and find max for numerical stability
+    float max_logit = -INFINITY;
     for (i = 0; i < output_size_; ++i) {
       sum = 0;
       for (j = 0; j < NUM_CELLS * NUM_LAYERS + 1; ++j) sum += hidden_[j] * output_layer_[epoch_][i][j];
-      output_[epoch_][i] = exp(sum);
+      output_[epoch_][i] = sum;
+      if (sum > max_logit) max_logit = sum;
     }
+    // Stable softmax: exp(logit - max_logit)
     sum = 0;
-    for (i = 0; i < output_size_; ++i) sum += output_[epoch_][i];
+    for (i = 0; i < output_size_; ++i) {
+      output_[epoch_][i] = exp(output_[epoch_][i] - max_logit);
+      sum += output_[epoch_][i];
+    }
     for (i = 0; i < output_size_; ++i) output_[epoch_][i] /= sum;
     epoch = epoch_;
     ++epoch_;
@@ -675,10 +682,15 @@ int main( int argc, char** argv ) {
   //PM = new Model<LstmType>();
   M.Init(cmap, &lstm);
 
+  // Initialize PPMD predictions
+  p = byte_model_.BytePredict();
+
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
+    // Mix PPMD and LSTM predictions (adaptive weight)
+    float mix_weight = 0.4f + 0.3f * (float)f_pos / (float)f_len;  // 0.4 to 0.7
     for( i=0,total=0; i<CNUM; i++ ) {
-      freq[i] = M.probs_[i]*SCALE;
+      freq[i] = ((1.0f - mix_weight) * M.probs_[i] + mix_weight * p[i]) * SCALE;
       freq[i] += ((freq[i]==0) & cmap[i]);
       total += freq[i];
     }
