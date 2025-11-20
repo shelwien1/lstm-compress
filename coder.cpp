@@ -31,6 +31,60 @@ uint flen( FILE* f ) {
   return len;
 }
 
+// Tanh lookup table using upper 16 bits of float representation
+static float tanh_table[65536];
+static bool tanh_table_initialized = false;
+
+// Logistic lookup table using upper 16 bits of float representation
+static float logistic_table[65536];
+static bool logistic_table_initialized = false;
+
+static void init_tanh_table() {
+  if (tanh_table_initialized) return;
+
+  // Build lookup table for all possible upper 16-bit patterns
+  for (uint i = 0; i < 65536; ++i) {
+    // Reconstruct a float from upper 16 bits
+    // Put the 16 bits in the upper half, zero out lower half
+    uint32_t bits = i << 16;
+    float val;
+    memcpy(&val, &bits, sizeof(float));
+    tanh_table[i] = tanh(val);
+  }
+  tanh_table_initialized = true;
+}
+
+static void init_logistic_table() {
+  if (logistic_table_initialized) return;
+
+  // Build lookup table for all possible upper 16-bit patterns
+  for (uint i = 0; i < 65536; ++i) {
+    // Reconstruct a float from upper 16 bits
+    // Put the 16 bits in the upper half, zero out lower half
+    uint32_t bits = i << 16;
+    float val;
+    memcpy(&val, &bits, sizeof(float));
+    logistic_table[i] = 1.0f / (1.0f + exp(-val));
+  }
+  logistic_table_initialized = true;
+}
+
+// Fast tanh using table lookup with upper 16 bits
+static inline float tanh_fast(float x) {
+  uint32_t bits;
+  memcpy(&bits, &x, sizeof(float));
+  uint16_t index = (bits+0xFFFF) >> 16;  // Extract upper 16 bits
+  return tanh_table[index];
+}
+
+// Fast logistic using table lookup with upper 16 bits
+static inline float logistic_fast(float x) {
+  uint32_t bits;
+  memcpy(&bits, &x, sizeof(float));
+  uint16_t index = (bits+0xFFFF) >> 16;  // Extract upper 16 bits
+  return logistic_table[index];
+}
+
 #include "sh_v2f.inc"
 #include "ppmd.hpp"
 
@@ -161,16 +215,16 @@ struct LstmLayer {
     ForwardPass(input_node_, input, input_size, input_symbol);
     ForwardPass(output_gate_, input, input_size, input_symbol);
     for (i = 0; i < num_cells_; ++i) {
-      forget_gate_.state_[epoch_ * num_cells_ + i] = Logistic(forget_gate_.state_[epoch_ * num_cells_ + i]);
-      input_node_.state_[epoch_ * num_cells_ + i] = tanh(input_node_.state_[epoch_ * num_cells_ + i]);
-      output_gate_.state_[epoch_ * num_cells_ + i] = Logistic(output_gate_.state_[epoch_ * num_cells_ + i]);
+      forget_gate_.state_[epoch_ * num_cells_ + i] = logistic_fast(forget_gate_.state_[epoch_ * num_cells_ + i]);
+      input_node_.state_[epoch_ * num_cells_ + i] = tanh_fast(input_node_.state_[epoch_ * num_cells_ + i]);
+      output_gate_.state_[epoch_ * num_cells_ + i] = logistic_fast(output_gate_.state_[epoch_ * num_cells_ + i]);
     }
     for (i = 0; i < num_cells_; ++i) {
       input_gate_state_[epoch_][i] = 1.0f - forget_gate_.state_[epoch_ * num_cells_ + i];
     }
     for (i = 0; i < num_cells_; ++i) state_[i] *= forget_gate_.state_[epoch_ * num_cells_ + i];
     for (i = 0; i < num_cells_; ++i) state_[i] += input_node_.state_[epoch_ * num_cells_ + i] * input_gate_state_[epoch_][i];
-    for (i = 0; i < num_cells_; ++i) tanh_state_[epoch_][i] = tanh(state_[i]);
+    for (i = 0; i < num_cells_; ++i) tanh_state_[epoch_][i] = tanh_fast(state_[i]);
     for (i = 0; i < num_cells_; ++i) hidden[hidden_start + i] = output_gate_.state_[epoch_ * num_cells_ + i] * tanh_state_[epoch_][i];
     ++epoch_;
     if (epoch_ == horizon_) epoch_ = 0;
@@ -609,6 +663,10 @@ int main( int argc, char** argv ) {
   FILE* f;
   FILE* g;
   const float* p;
+
+  // Initialize lookup tables
+  init_tanh_table();
+  init_logistic_table();
 
   printf( "sizeof(lstm)=%i; sizeof(PPMD)=%i; sizeof(Model)=%i\n", int(sizeof(lstm)), int(sizeof(byte_model_)), int(sizeof(M)));
 
