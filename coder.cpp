@@ -224,7 +224,7 @@ struct LstmLayer {
   }
 
   static void Adam(float* g, float* m, float* v, float* w, uint size, float learning_rate, float t) {
-    const float beta1 = 0.01, beta2 = 0.9999, eps = 1e-6f;
+    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
     float alpha;
     uint i;
     if (t < UPDATE_LIMIT) {
@@ -463,20 +463,13 @@ struct Lstm {
         }
       }
     }
-    // Compute logits and find max for numerical stability
-    float max_logit = -INFINITY;
     for (i = 0; i < output_size_; ++i) {
       sum = 0;
       for (j = 0; j < NUM_CELLS * NUM_LAYERS + 1; ++j) sum += hidden_[j] * output_layer_[epoch_][i][j];
-      output_[epoch_][i] = sum;
-      if (sum > max_logit) max_logit = sum;
+      output_[epoch_][i] = exp(sum);
     }
-    // Stable softmax: exp(logit - max_logit)
     sum = 0;
-    for (i = 0; i < output_size_; ++i) {
-      output_[epoch_][i] = exp(output_[epoch_][i] - max_logit);
-      sum += output_[epoch_][i];
-    }
+    for (i = 0; i < output_size_; ++i) sum += output_[epoch_][i];
     for (i = 0; i < output_size_; ++i) output_[epoch_][i] /= sum;
     epoch = epoch_;
     ++epoch_;
@@ -594,7 +587,7 @@ constexpr uint LSTM_INPUT_SIZE = 128;
 constexpr uint LSTM_NUM_CELLS = 90;
 constexpr uint LSTM_NUM_LAYERS = 2;
 constexpr uint LSTM_HORIZON = 73;
-constexpr uint LSTM_LEARNING_RATE_X100000 = 5000;  // 0.05 * 100000
+constexpr uint LSTM_LEARNING_RATE_X100000 = 7200;  // 0.072 * 100000
 constexpr uint LSTM_GRADIENT_CLIP_X10 = 20;         // 2.0 * 10
 constexpr uint UPDATE_LIMIT = 3000;
 
@@ -688,7 +681,7 @@ int main( int argc, char** argv ) {
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
     // Mix PPMD and LSTM predictions (adaptive weight)
-    float mix_weight = 0.4f + 0.3f * (float)f_pos / (float)f_len;  // 0.4 to 0.7
+    float mix_weight = 0.35f /*+ 0.15f * (float)Min<int>(f_pos/3,f_len) / (float)f_len*/;  // 0.4 to 0.7
     for( i=0,total=0; i<CNUM; i++ ) {
       freq[i] = ((1.0f - mix_weight) * M.probs_[i] + mix_weight * p[i]) * SCALE;
       freq[i] += ((freq[i]==0) & cmap[i]);
