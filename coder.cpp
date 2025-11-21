@@ -479,101 +479,76 @@ struct Lstm {
   }
 
 };
-//--- #include "byte-model.hpp"
+//--- #include "unified-model.hpp"
 
-struct Byte_Model {
+template<typename LstmType>
+struct UnifiedModel {
+  ppmd_Model ppmd_model_;
+  LstmType* lstm_;
+  char* vocab_;
+  int byte_map_[256];
+  float ppmd_probs_[256];
+  float lstm_probs_[256];
 
-  void Init(char* vocab) {
-    int i;
-//printf( "Byte_Model @ %I64X\n", this );
+  NOINLINE
+  void Init(int order, int memory, char* vocab, LstmType* lstm) {
+    int i, offset;
     vocab_ = vocab;
-    for (i = 0; i < 256; ++i) {
-      probs_[i] = 1.0 / 256;
+    lstm_ = lstm;
+
+    // Initialize PPMD
+    ppmd_model_.Init(order, memory, 1, 0);
+
+    // Initialize byte mapping and probabilities
+    offset = 0;
+    for (i = 0; i < 256; i++) {
+      byte_map_[i] = offset;
+      if (vocab_[i]) ++offset;
+      ppmd_probs_[i] = 1.0 / 256;
+      lstm_probs_[i] = 1.0 / 256;
     }
   }
 
   const float* BytePredict() {
-    return probs_;
+    return ppmd_probs_;
   }
 
   void ByteUpdate() {
     int i;
     for (i = 0; i < 256; ++i) {
-      if (!vocab_[i]) probs_[i] = 0;
+      if (!vocab_[i]) ppmd_probs_[i] = 0;
     }
-  }
-
-  char* vocab_;
-  float probs_[256];
-};
-
-//--- #include "ppmd-model.hpp"
-
-struct PPMD : Byte_Model {
-  ppmd_Model ppmd_model_;
-
-  NOINLINE
-  void Init(int order, int memory, char* vocab) {
-//printf( "PPMD @ %I64X\n", this );
-    Byte_Model::Init(vocab);
-    ppmd_model_.Init(order,memory,1,0);
   }
 
   NOINLINE
   void ByteUpdate(uint byte) {
     int i;
     float sum;
-    ppmd_model_.ppmd_UpdateByte( byte&0xFF );
+    ppmd_model_.ppmd_UpdateByte(byte & 0xFF);
     ppmd_model_.ppmd_PrepareByte();
     for (i = 0; i < 256; ++i) {
-      probs_[i] = ppmd_model_.sqp[i];
-      if (probs_[i] < 1) probs_[i] = 1;
+      ppmd_probs_[i] = ppmd_model_.sqp[i];
+      if (ppmd_probs_[i] < 1) ppmd_probs_[i] = 1;
     }
-    Byte_Model::ByteUpdate();
-    /* probs_ /= probs_.sum(); */
+    ByteUpdate();
     sum = 0;
-    for (i = 0; i < 256; ++i) sum += probs_[i];
-    for (i = 0; i < 256; ++i) probs_[i] /= sum;
+    for (i = 0; i < 256; ++i) sum += ppmd_probs_[i];
+    for (i = 0; i < 256; ++i) ppmd_probs_[i] /= sum;
   }
 
-};
-
-//--- #include "model.hpp"
-
-template<typename LstmType>
-struct Model {
-  int byte_map_[256];
-  float probs_[256];
-  LstmType* lstm_;
-  char* vocab_;
-
-  void Init( char* vocab, LstmType* lstm ) {
-    int i, offset;
-//printf( "Model @ %I64X\n", this );
-    vocab_ = vocab;
-    lstm_ = lstm;
-    offset = 0;
-    for( i = 0; i < 256; i++ ) {
-      byte_map_[i] = offset;
-      if (vocab_[i]) ++offset;
-      probs_[i]=1.0/256;
-    }
-  }
-
-  void Update( int sym ) {
-    const float* output = lstm_->Perceive( byte_map_[sym] );
+  void Update(int sym) {
+    const float* output = lstm_->Perceive(byte_map_[sym]);
     int i, offset;
     offset = 0;
-    for( i = 0; i < 256; i++ ) {
-      if( vocab_[i] ) {
-        probs_[i] = output[offset];
+    for (i = 0; i < 256; i++) {
+      if (vocab_[i]) {
+        lstm_probs_[i] = output[offset];
         offset++;
       } else {
-        probs_[i] = 0;
+        lstm_probs_[i] = 0;
       }
     }
   }
-
 };
 
 static const uint CNUM = 256;
@@ -599,9 +574,7 @@ ALIGN(16) LstmType lstm;
 
 ALIGN(64) Rangecoder rc;
 
-ALIGN(64) PPMD byte_model_;
-
-ALIGN(64) Model<LstmType> M;
+ALIGN(64) UnifiedModel<LstmType> M;
 
 
 int main( int argc, char** argv ) {
@@ -610,7 +583,7 @@ int main( int argc, char** argv ) {
   FILE* g;
   const float* p;
 
-  printf( "sizeof(lstm)=%i; sizeof(PPMD)=%i; sizeof(Model)=%i\n", int(sizeof(lstm)), int(sizeof(byte_model_)), int(sizeof(M)));
+  printf( "sizeof(lstm)=%i; sizeof(UnifiedModel)=%i\n", int(sizeof(lstm)), int(sizeof(M)));
 
   if( argc < 4 ) {
     printf(
@@ -664,26 +637,20 @@ int main( int argc, char** argv ) {
 
   for( i=0,total=0; i<CNUM; i++ ) total+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
-  //byte_model_ = new PPMD();
-  byte_model_.Init(PPMD_ORDER, PPMD_MEMORY, cmap);
-
-  byte_model_.Byte_Model::ByteUpdate();
-
   srand(0xDEADBEEF);
-  //lstm = new LstmType();
   lstm.Init(total);
-  //PM = new Model<LstmType>();
-  M.Init(cmap, &lstm);
+  M.Init(PPMD_ORDER, PPMD_MEMORY, cmap, &lstm);
+  M.ByteUpdate();
 
   // Initialize PPMD predictions
-  p = byte_model_.BytePredict();
+  p = M.BytePredict();
 
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
     // Mix PPMD and LSTM predictions (adaptive weight)
     float mix_weight = 0.35f /*+ 0.15f * (float)Min<int>(f_pos/3,f_len) / (float)f_len*/;  // 0.4 to 0.7
     for( i=0,total=0; i<CNUM; i++ ) {
-      freq[i] = ((1.0f - mix_weight) * M.probs_[i] + mix_weight * p[i]) * SCALE;
+      freq[i] = ((1.0f - mix_weight) * M.lstm_probs_[i] + mix_weight * p[i]) * SCALE;
       freq[i] += ((freq[i]==0) & cmap[i]);
       total += freq[i];
     }
@@ -700,10 +667,10 @@ int main( int argc, char** argv ) {
 
     if( f_DEC==1 ) putc(c,g);
 
-    byte_model_.ByteUpdate(c);
-    p = byte_model_.BytePredict();
+    M.ByteUpdate(c);
+    p = M.BytePredict();
     M.lstm_->SetInput(p);
-    M.Update( c );
+    M.Update(c);
 
 /*if( ftell(rc.f)>(1<<20) ) break;*/
   }
