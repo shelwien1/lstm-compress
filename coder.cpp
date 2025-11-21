@@ -43,96 +43,299 @@ uint flen( FILE* f ) {
 
 //--- #include "neuron-layer.hpp"
 
+template<uint NUM_CELLS, uint HORIZON, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
 struct NeuronLayer {
-  NeuronLayer(uint input_size, uint num_cells, uint horizon,
-    uint offset) : error_(num_cells), ivar_(horizon), gamma_(1.0, num_cells),
-    gamma_u_(num_cells), gamma_m_(num_cells), gamma_v_(num_cells),
-    beta_(num_cells), beta_u_(num_cells), beta_m_(num_cells),
-    beta_v_(num_cells), weights_(std::valarray<float>(input_size), num_cells),
-    state_(std::valarray<float>(num_cells), horizon),
-    update_(std::valarray<float>(input_size), num_cells),
-    m_(std::valarray<float>(input_size), num_cells),
-    v_(std::valarray<float>(input_size), num_cells),
-    transpose_(std::valarray<float>(num_cells), input_size - offset),
-    norm_(std::valarray<float>(num_cells), horizon) {}
+  float error_[NUM_CELLS];
+  float ivar_[HORIZON];
+  float gamma_[NUM_CELLS];
+  float gamma_u_[NUM_CELLS];
+  float gamma_m_[NUM_CELLS];
+  float gamma_v_[NUM_CELLS];
+  float beta_[NUM_CELLS];
+  float beta_u_[NUM_CELLS];
+  float beta_m_[NUM_CELLS];
+  float beta_v_[NUM_CELLS];
+  std::vector<float> weights_[NUM_CELLS];
+  std::vector<float> state_[HORIZON];
+  std::vector<float> update_[NUM_CELLS];
+  std::vector<float> m_[NUM_CELLS];
+  std::vector<float> v_[NUM_CELLS];
+  std::vector<float> transpose_[256];
+  std::vector<float> norm_[HORIZON];
+  uint input_size_;
+  uint transpose_size_;
+  uint input_array_size_;
 
-  std::valarray<float> error_, ivar_, gamma_, gamma_u_, gamma_m_, gamma_v_,
-      beta_, beta_u_, beta_m_, beta_v_;
-  std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
-      transpose_, norm_;
+  void Init(uint input_size, uint offset, uint input_array_size) {
+    input_size_ = input_size;
+    transpose_size_ = input_size - offset;
+    input_array_size_ = input_array_size;
+    for (uint i = 0; i < NUM_CELLS; ++i) gamma_[i] = 1.0;
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      weights_[i].resize(input_size);
+    }
+    for (uint i = 0; i < HORIZON; ++i) {
+      state_[i].resize(NUM_CELLS);
+    }
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      update_[i].resize(input_size);
+    }
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      m_[i].resize(input_size);
+    }
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      v_[i].resize(input_size);
+    }
+    for (uint i = 0; i < input_size - offset; ++i) {
+      transpose_[i].resize(NUM_CELLS);
+    }
+    for (uint i = 0; i < HORIZON; ++i) {
+      norm_[i].resize(NUM_CELLS);
+    }
+  }
+
+  void Adam(std::vector<float>* g, std::vector<float>* m, std::vector<float>* v,
+            std::vector<float>* w, qword t) {
+    constexpr float learning_rate = LEARNING_RATE_X100000 / 100000.0f;
+    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    float alpha;
+    if (t < UPDATE_LIMIT) {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
+    } else {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
+    }
+    for (uint i = 0; i < g->size(); ++i) {
+      (*m)[i] *= beta1;
+      (*m)[i] += (1.0f - beta1) * (*g)[i];
+      (*v)[i] *= beta2;
+      (*v)[i] += (1.0f - beta2) * (*g)[i] * (*g)[i];
+      if (t < UPDATE_LIMIT) {
+        (*w)[i] -= alpha * (((*m)[i] / (float)(1.0f - pow(beta1, t))) /
+            (sqrt((*v)[i] / (float)(1.0f - pow(beta2, t)) + eps)));
+      } else {
+        (*w)[i] -= alpha * (((*m)[i] / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) /
+            (sqrt((*v)[i] / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
+      }
+    }
+  }
+
+  void Adam(float* g, float* m, float* v, float* w, qword t, uint size) {
+    constexpr float learning_rate = LEARNING_RATE_X100000 / 100000.0f;
+    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    float alpha;
+    if (t < UPDATE_LIMIT) {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
+    } else {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
+    }
+    for (uint i = 0; i < size; ++i) {
+      m[i] *= beta1;
+      m[i] += (1.0f - beta1) * g[i];
+      v[i] *= beta2;
+      v[i] += (1.0f - beta2) * g[i] * g[i];
+      if (t < UPDATE_LIMIT) {
+        w[i] -= alpha * ((m[i] / (float)(1.0f - pow(beta1, t))) /
+            (sqrt(v[i] / (float)(1.0f - pow(beta2, t)) + eps)));
+      } else {
+        w[i] -= alpha * ((m[i] / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) /
+            (sqrt(v[i] / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
+      }
+    }
+  }
+
+  void ForwardPass(const std::vector<float>& input, uint input_symbol,
+                   uint output_size, uint epoch) {
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      float f = weights_[i][input_symbol];
+      for (uint j = 0; j < input_array_size_; ++j) {
+        f += input[j] * weights_[i][output_size + j];
+      }
+      norm_[epoch][i] = f;
+    }
+    float sum_sq = 0.0f;
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      sum_sq += norm_[epoch][i] * norm_[epoch][i];
+    }
+    ivar_[epoch] = 1.0f / sqrt((sum_sq / NUM_CELLS) + 1e-5f);
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      norm_[epoch][i] *= ivar_[epoch];
+      state_[epoch][i] = norm_[epoch][i] * gamma_[i] + beta_[i];
+    }
+  }
+
+  void BackwardPass(const std::vector<float>& input,
+                    uint epoch,
+                    uint layer,
+                    uint input_symbol,
+                    float* hidden_error,
+                    uint output_size,
+                    uint input_size,
+                    float* stored_error,
+                    qword update_steps) {
+    if (epoch == HORIZON - 1) {
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        gamma_u_[i] = 0;
+        beta_u_[i] = 0;
+        for (uint j = 0; j < update_[i].size(); ++j) {
+          update_[i][j] = 0;
+        }
+        uint offset = output_size + input_size;
+        for (uint j = 0; j < transpose_size_; ++j) {
+          transpose_[j][i] = weights_[i][j + offset];
+        }
+      }
+    }
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      beta_u_[i] += error_[i];
+      gamma_u_[i] += error_[i] * norm_[epoch][i];
+      error_[i] *= gamma_[i] * ivar_[epoch];
+    }
+    float sum_err_norm = 0.0f;
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      sum_err_norm += error_[i] * norm_[epoch][i];
+    }
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      error_[i] -= (sum_err_norm / NUM_CELLS) * norm_[epoch][i];
+    }
+    if (layer > 0) {
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        float f = 0;
+        for (uint j = 0; j < NUM_CELLS; ++j) {
+          f += error_[j] * transpose_[NUM_CELLS + i][j];
+        }
+        hidden_error[i] += f;
+      }
+    }
+    if (epoch > 0) {
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        float f = 0;
+        for (uint j = 0; j < NUM_CELLS; ++j) {
+          f += error_[j] * transpose_[i][j];
+        }
+        stored_error[i] += f;
+      }
+    }
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      for (uint j = 0; j < input_array_size_; ++j) {
+        update_[i][output_size + j] += error_[i] * input[j];
+      }
+      update_[i][input_symbol] += error_[i];
+    }
+    if (epoch == 0) {
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        Adam(&update_[i], &m_[i], &v_[i], &weights_[i], update_steps);
+      }
+      Adam(gamma_u_, gamma_m_, gamma_v_, gamma_, update_steps, NUM_CELLS);
+      Adam(beta_u_, beta_m_, beta_v_, beta_, update_steps, NUM_CELLS);
+    }
+  }
 };
 //--- #include "lstm-layer.hpp"
 
+template<uint NUM_CELLS, uint HORIZON, uint LEARNING_RATE_X100000, uint GRADIENT_CLIP_X10, uint UPDATE_LIMIT>
 struct LstmLayer {
-  LstmLayer(uint input_size, uint auxiliary_input_size,
-      uint output_size, uint num_cells, uint horizon,
-      float gradient_clip, float learning_rate, int update_limit) :
-      state_(num_cells), state_error_(num_cells), stored_error_(num_cells),
-      tanh_state_(std::valarray<float>(num_cells), horizon),
-      input_gate_state_(std::valarray<float>(num_cells), horizon),
-      last_state_(std::valarray<float>(num_cells), horizon),
-      gradient_clip_(gradient_clip), learning_rate_(learning_rate),
-      num_cells_(num_cells), epoch_(0), horizon_(horizon),
-      input_size_(auxiliary_input_size), output_size_(output_size),
-      forget_gate_(input_size, num_cells, horizon, output_size_ + input_size_),
-      input_node_(input_size, num_cells, horizon, output_size_ + input_size_),
-      output_gate_(input_size, num_cells, horizon, output_size_ + input_size_)
-  {
-    UPDATE_LIMIT = update_limit;
+  using NLayer = NeuronLayer<NUM_CELLS, HORIZON, LEARNING_RATE_X100000, UPDATE_LIMIT>;
+
+  float state_[NUM_CELLS];
+  float state_error_[NUM_CELLS];
+  float stored_error_[NUM_CELLS];
+  std::vector<float> tanh_state_[HORIZON];
+  std::vector<float> input_gate_state_[HORIZON];
+  std::vector<float> last_state_[HORIZON];
+  uint epoch_;
+  uint input_size_;
+  uint output_size_;
+  qword update_steps_ = 0;
+  NLayer forget_gate_;
+  NLayer input_node_;
+  NLayer output_gate_;
+
+  void Init(uint input_size, uint auxiliary_input_size, uint output_size) {
+    for (uint i = 0; i < HORIZON; ++i) {
+      tanh_state_[i].resize(NUM_CELLS);
+    }
+    for (uint i = 0; i < HORIZON; ++i) {
+      input_gate_state_[i].resize(NUM_CELLS);
+    }
+    for (uint i = 0; i < HORIZON; ++i) {
+      last_state_[i].resize(NUM_CELLS);
+    }
+    epoch_ = 0;
+    input_size_ = auxiliary_input_size;
+    output_size_ = output_size;
+    update_steps_ = 0;
+
+    forget_gate_.Init(input_size, output_size_ + input_size_, input_size - output_size);
+    input_node_.Init(input_size, output_size_ + input_size_, input_size - output_size);
+    output_gate_.Init(input_size, output_size_ + input_size_, input_size - output_size);
+
     float val = sqrt(6.0f / float(input_size_ + output_size_));
     float low = -val;
     float range = 2 * val;
-    for (uint i = 0; i < num_cells_; ++i) {
-      for (uint j = 0; j < forget_gate_.weights_[i].size(); ++j) {
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      for (uint j = 0; j < forget_gate_.input_size_; ++j) {
         forget_gate_.weights_[i][j] = low + Rand() * range;
         input_node_.weights_[i][j] = low + Rand() * range;
         output_gate_.weights_[i][j] = low + Rand() * range;
       }
-      forget_gate_.weights_[i][forget_gate_.weights_[i].size() - 1] = 1;
+      forget_gate_.weights_[i][forget_gate_.input_size_ - 1] = 1;
     }
   }
 
-  void ForwardPass(const std::valarray<float>& input, uint input_symbol, std::valarray<float>* hidden, uint hidden_start ) {
-    last_state_[epoch_] = state_;
+  void ForwardPass(const std::vector<float>& input, uint input_symbol, float* hidden, uint hidden_start ) {
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      last_state_[epoch_][i] = state_[i];
+    }
     ForwardPass(forget_gate_, input, input_symbol);
     ForwardPass(input_node_, input, input_symbol);
     ForwardPass(output_gate_, input, input_symbol);
-    for (uint i = 0; i < num_cells_; ++i) {
+    for (uint i = 0; i < NUM_CELLS; ++i) {
       forget_gate_.state_[epoch_][i] = Logistic(forget_gate_.state_[epoch_][i]);
       input_node_.state_[epoch_][i] = tanh(input_node_.state_[epoch_][i]);
       output_gate_.state_[epoch_][i] = Logistic(output_gate_.state_[epoch_][i]);
     }
-    input_gate_state_[epoch_] = 1.0f - forget_gate_.state_[epoch_];
-    state_ *= forget_gate_.state_[epoch_];
-    state_ += input_node_.state_[epoch_] * input_gate_state_[epoch_];
-    tanh_state_[epoch_] = tanh(state_);
-    std::slice slice = std::slice(hidden_start, num_cells_, 1);
-    (*hidden)[slice] = output_gate_.state_[epoch_] * tanh_state_[epoch_];
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      input_gate_state_[epoch_][i] = 1.0f - forget_gate_.state_[epoch_][i];
+      state_[i] *= forget_gate_.state_[epoch_][i];
+      state_[i] += input_node_.state_[epoch_][i] * input_gate_state_[epoch_][i];
+      tanh_state_[epoch_][i] = tanh(state_[i]);
+      hidden[hidden_start + i] = output_gate_.state_[epoch_][i] * tanh_state_[epoch_][i];
+    }
     ++epoch_;
-    if (epoch_ == horizon_) epoch_ = 0;
+    if (epoch_ == HORIZON) epoch_ = 0;
   }
 
-  void BackwardPass(const std::valarray<float>& input, uint epoch, uint layer, uint input_symbol, std::valarray<float>* hidden_error) {
-    if (epoch == (int)horizon_ - 1) {
-      stored_error_ = *hidden_error;
-      state_error_ = 0;
+  void BackwardPass(const std::vector<float>& input, uint epoch, uint layer, uint input_symbol, float* hidden_error) {
+    if (epoch == (int)HORIZON - 1) {
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        stored_error_[i] = hidden_error[i];
+        state_error_[i] = 0;
+      }
     } else {
-      stored_error_ += *hidden_error;
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        stored_error_[i] += hidden_error[i];
+      }
     }
 
-    output_gate_.error_ = tanh_state_[epoch] * stored_error_ *
-        output_gate_.state_[epoch] * (1.0f - output_gate_.state_[epoch]);
-    state_error_ += stored_error_ * output_gate_.state_[epoch] * (1.0f -
-        (tanh_state_[epoch] * tanh_state_[epoch]));
-    input_node_.error_ = state_error_ * input_gate_state_[epoch] * (1.0f -
-        (input_node_.state_[epoch] * input_node_.state_[epoch]));
-    forget_gate_.error_ = (last_state_[epoch] - input_node_.state_[epoch]) *
-        state_error_ * forget_gate_.state_[epoch] * input_gate_state_[epoch];
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      output_gate_.error_[i] = tanh_state_[epoch][i] * stored_error_[i] *
+          output_gate_.state_[epoch][i] * (1.0f - output_gate_.state_[epoch][i]);
+      state_error_[i] += stored_error_[i] * output_gate_.state_[epoch][i] * (1.0f -
+          (tanh_state_[epoch][i] * tanh_state_[epoch][i]));
+      input_node_.error_[i] = state_error_[i] * input_gate_state_[epoch][i] * (1.0f -
+          (input_node_.state_[epoch][i] * input_node_.state_[epoch][i]));
+      forget_gate_.error_[i] = (last_state_[epoch][i] - input_node_.state_[epoch][i]) *
+          state_error_[i] * forget_gate_.state_[epoch][i] * input_gate_state_[epoch][i];
+    }
 
-    *hidden_error = 0;
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      hidden_error[i] = 0;
+    }
     if (epoch > 0) {
-      state_error_ *= forget_gate_.state_[epoch];
-      stored_error_ = 0;
+      for (uint i = 0; i < NUM_CELLS; ++i) {
+        state_error_[i] *= forget_gate_.state_[epoch][i];
+        stored_error_[i] = 0;
+      }
     } else {
       if (update_steps_ < UPDATE_LIMIT) ++update_steps_;
     }
@@ -141,8 +344,8 @@ struct LstmLayer {
     BackwardPass(input_node_, input, epoch, layer, input_symbol, hidden_error);
     BackwardPass(output_gate_, input, epoch, layer, input_symbol, hidden_error);
 
-    ClipGradients(&state_error_);
-    ClipGradients(&stored_error_);
+    ClipGradients(state_error_);
+    ClipGradients(stored_error_);
     ClipGradients(hidden_error);
   }
 
@@ -154,172 +357,122 @@ struct LstmLayer {
     return 1.0f / (1.0f + exp(-p));
   }
 
-  std::vector<std::valarray<std::valarray<float>>*> Weights() {
-    std::vector<std::valarray<std::valarray<float>>*> weights;
-    weights.push_back(&forget_gate_.weights_);
-    weights.push_back(&input_node_.weights_);
-    weights.push_back(&output_gate_.weights_);
-    return weights;
-  }
-
-  std::valarray<float> state_, state_error_, stored_error_;
-  std::valarray<std::valarray<float>> tanh_state_, input_gate_state_, last_state_;
-  float gradient_clip_, learning_rate_;
-  uint num_cells_, epoch_, horizon_, input_size_, output_size_;
-  qword update_steps_ = 0;
-  NeuronLayer forget_gate_, input_node_, output_gate_;
-  uint UPDATE_LIMIT;
-
-  void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>* v, std::valarray<float>* w, float learning_rate, float t) {
-    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
-    float alpha;
-    if (t < UPDATE_LIMIT) {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
-    } else {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
-    }
-    (*m) *= beta1;
-    (*m) += (1.0f - beta1) * (*g);
-    (*v) *= beta2;
-    (*v) += (1.0f - beta2) * (*g) * (*g);
-    if (t < UPDATE_LIMIT) {
-      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, t))) /
-          (sqrt((*v) / (float)(1.0f - pow(beta2, t)) + eps)));
-    } else {
-      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) /
-          (sqrt((*v) / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
+  void ClipGradients(float* arr) {
+    constexpr float gradient_clip = GRADIENT_CLIP_X10 / 10.0f;
+    for (uint i = 0; i < NUM_CELLS; ++i) {
+      if (arr[i] < -gradient_clip) arr[i] = -gradient_clip;
+      else if (arr[i] > gradient_clip) arr[i] = gradient_clip;
     }
   }
 
-  void ClipGradients(std::valarray<float>* arr) {
-    for (uint i = 0; i < arr->size(); ++i) {
-      if ((*arr)[i] < -gradient_clip_) (*arr)[i] = -gradient_clip_;
-      else if ((*arr)[i] > gradient_clip_) (*arr)[i] = gradient_clip_;
-    }
+  void ForwardPass(NLayer& neurons, const std::vector<float>& input, uint input_symbol) {
+    neurons.ForwardPass(input, input_symbol, output_size_, epoch_);
   }
 
-  void ForwardPass(NeuronLayer& neurons, const std::valarray<float>& input, uint input_symbol) {
-    for (uint i = 0; i < num_cells_; ++i) {
-      float f = neurons.weights_[i][input_symbol];
-      for (uint j = 0; j < input.size(); ++j) {
-        f += input[j] * neurons.weights_[i][output_size_ + j];
-      }
-      neurons.norm_[epoch_][i] = f;
-    }
-    neurons.ivar_[epoch_] = 1.0f / sqrt(((neurons.norm_[epoch_] *
-        neurons.norm_[epoch_]).sum() / num_cells_) + 1e-5f);
-    neurons.norm_[epoch_] *= neurons.ivar_[epoch_];
-    neurons.state_[epoch_] = neurons.norm_[epoch_] * neurons.gamma_ +
-        neurons.beta_;
-  }
-
-  void BackwardPass(NeuronLayer& neurons, const std::valarray<float>&input,
-      uint epoch, uint layer, uint input_symbol,
-      std::valarray<float>* hidden_error) {
-    if (epoch == horizon_ - 1) {
-      neurons.gamma_u_ = 0;
-      neurons.beta_u_ = 0;
-      for (uint i = 0; i < num_cells_; ++i) {
-        neurons.update_[i] = 0;
-        uint offset = output_size_ + input_size_;
-        for (uint j = 0; j < neurons.transpose_.size(); ++j) {
-          neurons.transpose_[j][i] = neurons.weights_[i][j + offset];
-        }
-      }
-    }
-    neurons.beta_u_ += neurons.error_;
-    neurons.gamma_u_ += neurons.error_ * neurons.norm_[epoch];
-    neurons.error_ *= neurons.gamma_ * neurons.ivar_[epoch];
-    neurons.error_ -= ((neurons.error_ * neurons.norm_[epoch]).sum() / num_cells_) * neurons.norm_[epoch];
-    if (layer > 0) {
-      for (uint i = 0; i < num_cells_; ++i) {
-        float f = 0;
-        for (uint j = 0; j < num_cells_; ++j) {
-          f += neurons.error_[j] * neurons.transpose_[num_cells_ + i][j];
-        }
-        (*hidden_error)[i] += f;
-      }
-    }
-    if (epoch > 0) {
-      for (uint i = 0; i < num_cells_; ++i) {
-        float f = 0;
-        for (uint j = 0; j < num_cells_; ++j) {
-          f += neurons.error_[j] * neurons.transpose_[i][j];
-        }
-        stored_error_[i] += f;
-      }
-    }
-    std::slice slice = std::slice(output_size_, input.size(), 1);
-    for (uint i = 0; i < num_cells_; ++i) {
-      neurons.update_[i][slice] += neurons.error_[i] * input;
-      neurons.update_[i][input_symbol] += neurons.error_[i];
-    }
-    if (epoch == 0) {
-      for (uint i = 0; i < num_cells_; ++i) {
-        Adam(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i], &neurons.weights_[i], learning_rate_, update_steps_);
-      }
-      Adam(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_, &neurons.gamma_, learning_rate_, update_steps_);
-      Adam(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_, &neurons.beta_, learning_rate_, update_steps_);
-    }
+  void BackwardPass(NLayer& neurons, const std::vector<float>&input,
+                    uint epoch, uint layer, uint input_symbol, float* hidden_error) {
+    neurons.BackwardPass(input, epoch, layer, input_symbol, hidden_error,
+                         output_size_, input_size_,
+                         stored_error_, update_steps_);
   }
 };
 //--- #include "lstm.hpp"
 
+template<uint NUM_CELLS, uint NUM_LAYERS, uint HORIZON, uint LEARNING_RATE_X100000, uint GRADIENT_CLIP_X10, uint UPDATE_LIMIT>
 struct Lstm {
+  using LLayer = LstmLayer<NUM_CELLS, HORIZON, LEARNING_RATE_X100000, GRADIENT_CLIP_X10, UPDATE_LIMIT>;
+
+  std::vector<LLayer> layers_;
+  uint8_t input_history_[HORIZON];
+  float hidden_[NUM_CELLS * NUM_LAYERS + 1];
+  float hidden_error_[NUM_CELLS];
+  std::vector<std::vector<float>> layer_input_[HORIZON];
+  std::vector<std::vector<float>> output_layer_[HORIZON];
+  std::vector<float> output_[HORIZON];
+  uint epoch_;
+  uint input_size_;
+  uint output_size_;
+  uint last_input_ = -1;
+  uint hidden_size_;
+  uint hidden_error_size_;
+  uint layer_input_size_0_;
+  uint layer_input_size_rest_;
+
   NOINLINE
-  Lstm(uint input_size, uint output_size, uint
-      num_cells, uint num_layers, uint horizon, float learning_rate,
-      float gradient_clip, uint update_limit) : input_history_(horizon),
-      hidden_(num_cells * num_layers + 1), hidden_error_(num_cells),
-      layer_input_(std::valarray<std::valarray<float>>(std::valarray<float>
-      (input_size + 1 + num_cells * 2), num_layers), horizon),
-      output_layer_(std::valarray<std::valarray<float>>(std::valarray<float>
-     (num_cells * num_layers + 1), output_size), horizon),
-      output_(std::valarray<float>(1.0 / output_size, output_size), horizon),
-      learning_rate_(learning_rate), num_cells_(num_cells), epoch_(0),
-      horizon_(horizon), input_size_(input_size), output_size_(output_size) {
-    hidden_[hidden_.size() - 1] = 1;
-    for (uint epoch = 0; epoch < horizon; ++epoch) {
-      layer_input_[epoch][0].resize(1 + num_cells + input_size);
-      for (uint i = 0; i < num_layers; ++i) {
-        layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
+  void Init(uint input_size, uint output_size) {
+    hidden_size_ = NUM_CELLS * NUM_LAYERS + 1;
+    hidden_error_size_ = NUM_CELLS;
+    layer_input_size_0_ = 1 + NUM_CELLS + input_size;
+    layer_input_size_rest_ = input_size + 1 + NUM_CELLS * 2;
+    for (uint i = 0; i < HORIZON; ++i) {
+      layer_input_[i].resize(NUM_LAYERS);
+      for (uint j = 0; j < NUM_LAYERS; ++j) {
+        layer_input_[i][j].resize(input_size + 1 + NUM_CELLS * 2);
       }
     }
-    for (uint i = 0; i < num_layers; ++i) {
-      layers_.emplace_back(layer_input_[0][i].size() + output_size, input_size_, output_size_,num_cells, horizon, gradient_clip, learning_rate,update_limit);
+    for (uint i = 0; i < HORIZON; ++i) {
+      output_layer_[i].resize(output_size);
+      for (uint j = 0; j < output_size; ++j) {
+        output_layer_[i][j].resize(NUM_CELLS * NUM_LAYERS + 1);
+      }
+    }
+    for (uint i = 0; i < HORIZON; ++i) {
+      output_[i].resize(output_size);
+      for (uint j = 0; j < output_size; ++j) {
+        output_[i][j] = 1.0f / output_size;
+      }
+    }
+    epoch_ = 0;
+    input_size_ = input_size;
+    output_size_ = output_size;
+    last_input_ = -1;
+
+    hidden_[hidden_size_ - 1] = 1;
+    for (uint epoch = 0; epoch < HORIZON; ++epoch) {
+      layer_input_[epoch][0].resize(layer_input_size_0_);
+      layer_input_[epoch][0][layer_input_size_0_ - 1] = 1;
+      for (uint i = 1; i < NUM_LAYERS; ++i) {
+        layer_input_[epoch][i][layer_input_size_rest_ - 1] = 1;
+      }
+    }
+    layers_.resize(NUM_LAYERS);
+    layers_[0].Init(layer_input_size_0_ + output_size, input_size, output_size);
+    for (uint i = 1; i < NUM_LAYERS; ++i) {
+      layers_[i].Init(layer_input_size_rest_ + output_size, input_size, output_size);
     }
   }
 
-  ~Lstm() {}
-
   NOINLINE
-  void SetInput(const std::valarray<float>& input) {
-    for (uint i = 0; i < layers_.size(); ++i) {
-      std::copy(begin(input), begin(input) + input_size_, begin(layer_input_[epoch_][i]));
+  void SetInput(const std::vector<float>& input) {
+    for (uint i = 0; i < NUM_LAYERS; ++i) {
+      for (uint j = 0; j < input_size_; ++j) {
+        layer_input_[epoch_][i][j] = input[j];
+      }
     }
   }
 
   NOINLINE
-  std::valarray<float>& Perceive(uint input) {
+  std::vector<float>& Perceive(uint input) {
+    constexpr float learning_rate = LEARNING_RATE_X100000 / 100000.0f;
     uint last_epoch = epoch_ - 1;
-    if (last_epoch == -1) last_epoch = horizon_ - 1;
+    if (last_epoch == -1) last_epoch = HORIZON - 1;
     uint old_input = input_history_[last_epoch];
     input_history_[last_epoch] = input;
     if (epoch_ == 0) {
-      for (uint epoch = horizon_ - 1; epoch!=-1; --epoch) {
-        for (uint layer = layers_.size() - 1; layer!=-1; --layer) {
-          uint offset = layer * num_cells_;
+      for (uint epoch = HORIZON - 1; epoch!=-1; --epoch) {
+        for (uint layer = NUM_LAYERS - 1; layer!=-1; --layer) {
+          uint offset = layer * NUM_CELLS;
           for (uint i = 0; i < output_size_; ++i) {
             float error = (i == input_history_[epoch]) ? (output_[epoch][i] - 1) : output_[epoch][i];
-            for (uint j = 0; j < hidden_error_.size(); ++j) {
+            for (uint j = 0; j < hidden_error_size_; ++j) {
               hidden_error_[j] += output_layer_[epoch][i][j + offset] * error;
             }
           }
           uint prev_epoch = epoch - 1;
-          if (prev_epoch == -1) prev_epoch = horizon_ - 1;
+          if (prev_epoch == -1) prev_epoch = HORIZON - 1;
           uint input_symbol = input_history_[prev_epoch];
           if (epoch == 0) input_symbol = old_input;
-          layers_[layer].BackwardPass(layer_input_[epoch][layer], epoch, layer, input_symbol, &hidden_error_);
+          layers_[layer].BackwardPass(layer_input_[epoch][layer], epoch, layer, input_symbol, hidden_error_);
         }
       }
     }
@@ -327,48 +480,45 @@ struct Lstm {
     for (uint i = 0; i < output_size_; ++i) {
       float error = (i == input) ? (output_[last_epoch][i] - 1) : output_[last_epoch][i];
       output_layer_[epoch_][i] = output_layer_[last_epoch][i];
-      output_layer_[epoch_][i] -= learning_rate_ * error * hidden_;
+      for (uint j = 0; j < hidden_size_; ++j) {
+        output_layer_[epoch_][i][j] -= learning_rate * error * hidden_[j];
+      }
     }
     return Predict(input);
   }
 
   NOINLINE
-  std::valarray<float>& Predict(uint input) {
-    for (uint i = 0; i < layers_.size(); ++i) {
-      auto start = begin(hidden_) + i * num_cells_;
-      std::copy(start, start + num_cells_, begin(layer_input_[epoch_][i]) +
-          input_size_);
-      layers_[i].ForwardPass(layer_input_[epoch_][i], input, &hidden_, i *
-          num_cells_);
-      if (i < layers_.size() - 1) {
-        auto start2 = begin(layer_input_[epoch_][i + 1]) + num_cells_ +
-            input_size_;
-        std::copy(start, start + num_cells_, start2);
+  std::vector<float>& Predict(uint input) {
+    for (uint i = 0; i < NUM_LAYERS; ++i) {
+      for (uint j = 0; j < NUM_CELLS; ++j) {
+        layer_input_[epoch_][i][input_size_ + j] = hidden_[i * NUM_CELLS + j];
+      }
+      layers_[i].ForwardPass(layer_input_[epoch_][i], input, hidden_, i *
+          NUM_CELLS);
+      if (i < NUM_LAYERS - 1) {
+        for (uint j = 0; j < NUM_CELLS; ++j) {
+          layer_input_[epoch_][i + 1][NUM_CELLS + input_size_ + j] = hidden_[i * NUM_CELLS + j];
+        }
       }
     }
+    float sum_exp = 0.0f;
     for (uint i = 0; i < output_size_; ++i) {
       float sum = 0;
-      for (uint j = 0; j < hidden_.size(); ++j) {
+      for (uint j = 0; j < hidden_size_; ++j) {
         sum += hidden_[j] * output_layer_[epoch_][i][j];
       }
       output_[epoch_][i] = exp(sum);
+      sum_exp += output_[epoch_][i];
     }
-    output_[epoch_] /= output_[epoch_].sum();
+    for (uint i = 0; i < output_size_; ++i) {
+      output_[epoch_][i] /= sum_exp;
+    }
     uint epoch = epoch_;
     ++epoch_;
-    if (epoch_ == horizon_) epoch_ = 0;
+    if (epoch_ == HORIZON) epoch_ = 0;
     last_input_ = input;
     return output_[epoch];
   }
-
-  std::vector<LstmLayer> layers_;
-  std::vector<uint8_t> input_history_;
-  std::valarray<float> hidden_, hidden_error_;
-  std::valarray<std::valarray<std::valarray<float>>> layer_input_, output_layer_;
-  std::valarray<std::valarray<float>> output_;
-  float learning_rate_;
-  uint num_cells_, epoch_, horizon_, input_size_, output_size_;
-  uint last_input_ = -1;
 };
 //--- #include "unified-model.hpp"
 
@@ -436,7 +586,7 @@ struct UnifiedModel {
 
   NOINLINE
   void UpdateLSTM(int sym) {
-    const std::valarray<float>& output = lstm_->Perceive(byte_map_[sym]);
+    const std::vector<float>& output = lstm_->Perceive(byte_map_[sym]);
     uint i, offset;
     offset = 0;
     for (i = 0; i < 256; i++) {
@@ -467,11 +617,14 @@ constexpr uint LSTM_LEARNING_RATE_X100000 = 7200;  // 0.072 * 100000
 constexpr uint LSTM_GRADIENT_CLIP_X10 = 20;         // 2.0 * 10
 constexpr uint UPDATE_LIMIT_DEFAULT = 3000;
 
-Lstm* lstm = nullptr;
+using LstmInstance = Lstm<LSTM_NUM_CELLS, LSTM_NUM_LAYERS, LSTM_HORIZON,
+                           LSTM_LEARNING_RATE_X100000, LSTM_GRADIENT_CLIP_X10, UPDATE_LIMIT_DEFAULT>;
+
+LstmInstance* lstm = nullptr;
 
 ALIGN(64) Rangecoder rc;
 
-UnifiedModel<Lstm> M;
+UnifiedModel<LstmInstance> M;
 
 
 int main( int argc, char** argv ) {
@@ -534,9 +687,8 @@ int main( int argc, char** argv ) {
   for( i=0,n_chars=0; i<CNUM; i++ ) n_chars+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
   srand(0xDEADBEEF);
-  lstm = new Lstm(LSTM_INPUT_SIZE, n_chars, LSTM_NUM_CELLS, LSTM_NUM_LAYERS,
-                  LSTM_HORIZON, LSTM_LEARNING_RATE_X100000 / 100000.0f,
-                  LSTM_GRADIENT_CLIP_X10 / 10.0f, UPDATE_LIMIT_DEFAULT);
+  lstm = new LstmInstance();
+  lstm->Init(LSTM_INPUT_SIZE, n_chars);
   M.Init(PPMD_ORDER, PPMD_MEMORY, cmap, lstm);
 
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
@@ -562,8 +714,8 @@ int main( int argc, char** argv ) {
     if( f_DEC==1 ) putc(c,g);
 
     M.UpdatePPMD(c);
-    //M.Make_Packed(M.ppmd_probs_); std::valarray<float> packed_input(M.packedprobs, n_chars);
-    std::valarray<float> packed_input(M.ppmd_probs_, LSTM_INPUT_SIZE);
+    //M.Make_Packed(M.ppmd_probs_); std::vector<float> packed_input(M.packedprobs, M.packedprobs + n_chars);
+    std::vector<float> packed_input(M.ppmd_probs_, M.ppmd_probs_ + LSTM_INPUT_SIZE);
     M.lstm_->SetInput(packed_input);
     M.UpdateLSTM(c);
 
