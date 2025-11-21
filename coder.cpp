@@ -61,6 +61,28 @@ struct NeuronLayer {
   std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
       transpose_, norm_;
 
+  void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>* v,
+            std::valarray<float>* w, float learning_rate, qword t, uint update_limit) {
+    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
+    float alpha;
+    if (t < update_limit) {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
+    } else {
+      alpha = learning_rate * 0.1f / sqrt(5e-5f * update_limit + 1.0f);
+    }
+    (*m) *= beta1;
+    (*m) += (1.0f - beta1) * (*g);
+    (*v) *= beta2;
+    (*v) += (1.0f - beta2) * (*g) * (*g);
+    if (t < update_limit) {
+      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, t))) /
+          (sqrt((*v) / (float)(1.0f - pow(beta2, t)) + eps)));
+    } else {
+      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, update_limit))) /
+          (sqrt((*v) / (float)(1.0f - pow(beta2, update_limit)) + eps)));
+    }
+  }
+
   void ForwardPass(const std::valarray<float>& input, uint input_symbol,
                    uint num_cells, uint output_size, uint epoch) {
     for (uint i = 0; i < num_cells; ++i) {
@@ -75,7 +97,6 @@ struct NeuronLayer {
     state_[epoch] = norm_[epoch] * gamma_ + beta_;
   }
 
-  template<typename AdamFunc>
   void BackwardPass(const std::valarray<float>& input,
                     uint epoch,
                     uint layer,
@@ -88,7 +109,7 @@ struct NeuronLayer {
                     std::valarray<float>& stored_error,
                     float learning_rate,
                     qword update_steps,
-                    AdamFunc adam_func) {
+                    uint update_limit) {
     if (epoch == horizon - 1) {
       gamma_u_ = 0;
       beta_u_ = 0;
@@ -129,10 +150,10 @@ struct NeuronLayer {
     }
     if (epoch == 0) {
       for (uint i = 0; i < num_cells; ++i) {
-        adam_func(&update_[i], &m_[i], &v_[i], &weights_[i], learning_rate, update_steps);
+        Adam(&update_[i], &m_[i], &v_[i], &weights_[i], learning_rate, update_steps, update_limit);
       }
-      adam_func(&gamma_u_, &gamma_m_, &gamma_v_, &gamma_, learning_rate, update_steps);
-      adam_func(&beta_u_, &beta_m_, &beta_v_, &beta_, learning_rate, update_steps);
+      Adam(&gamma_u_, &gamma_m_, &gamma_v_, &gamma_, learning_rate, update_steps, update_limit);
+      Adam(&beta_u_, &beta_m_, &beta_v_, &beta_, learning_rate, update_steps, update_limit);
     }
   }
 };
@@ -245,27 +266,6 @@ struct LstmLayer {
   NeuronLayer forget_gate_, input_node_, output_gate_;
   uint UPDATE_LIMIT;
 
-  void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>* v, std::valarray<float>* w, float learning_rate, float t) {
-    const float beta1 = 0.025, beta2 = 0.9999, eps = 1e-6f;
-    float alpha;
-    if (t < UPDATE_LIMIT) {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * t + 1.0f);
-    } else {
-      alpha = learning_rate * 0.1f / sqrt(5e-5f * UPDATE_LIMIT + 1.0f);
-    }
-    (*m) *= beta1;
-    (*m) += (1.0f - beta1) * (*g);
-    (*v) *= beta2;
-    (*v) += (1.0f - beta2) * (*g) * (*g);
-    if (t < UPDATE_LIMIT) {
-      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, t))) /
-          (sqrt((*v) / (float)(1.0f - pow(beta2, t)) + eps)));
-    } else {
-      (*w) -= alpha * (((*m) / (float)(1.0f - pow(beta1, UPDATE_LIMIT))) /
-          (sqrt((*v) / (float)(1.0f - pow(beta2, UPDATE_LIMIT)) + eps)));
-    }
-  }
-
   void ClipGradients(std::valarray<float>* arr) {
     for (uint i = 0; i < arr->size(); ++i) {
       if ((*arr)[i] < -gradient_clip_) (*arr)[i] = -gradient_clip_;
@@ -280,15 +280,10 @@ struct LstmLayer {
   void BackwardPass(NeuronLayer& neurons, const std::valarray<float>&input,
       uint epoch, uint layer, uint input_symbol,
       std::valarray<float>* hidden_error) {
-    auto adam_lambda = [this](std::valarray<float>* g, std::valarray<float>* m,
-                              std::valarray<float>* v, std::valarray<float>* w,
-                              float lr, unsigned long long t) {
-      this->Adam(g, m, v, w, lr, t);
-    };
     neurons.BackwardPass(input, epoch, layer, input_symbol, hidden_error,
                          num_cells_, horizon_, output_size_, input_size_,
                          stored_error_, learning_rate_, update_steps_,
-                         adam_lambda);
+                         UPDATE_LIMIT);
   }
 };
 //--- #include "lstm.hpp"
