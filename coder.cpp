@@ -48,8 +48,16 @@ struct NeuronLayer {
       beta_, beta_u_, beta_m_, beta_v_;
   std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
       transpose_, norm_;
+  uint num_cells_, input_size_, transpose_size_;
+  uint horizon_;
+  uint input_array_size_;
 
-  void Init(uint input_size, uint num_cells, uint horizon, uint offset) {
+  void Init(uint input_size, uint num_cells, uint horizon, uint offset, uint input_array_size) {
+    num_cells_ = num_cells;
+    input_size_ = input_size;
+    horizon_ = horizon;
+    transpose_size_ = input_size - offset;
+    input_array_size_ = input_array_size;
     error_.resize(num_cells);
     ivar_.resize(horizon);
     gamma_ = std::valarray<float>(1.0, num_cells);
@@ -116,7 +124,7 @@ struct NeuronLayer {
                    uint num_cells, uint output_size, uint epoch) {
     for (uint i = 0; i < num_cells; ++i) {
       float f = weights_[i][input_symbol];
-      for (uint j = 0; j < input.size(); ++j) {
+      for (uint j = 0; j < input_array_size_; ++j) {
         f += input[j] * weights_[i][output_size + j];
       }
       norm_[epoch][i] = f;
@@ -145,7 +153,7 @@ struct NeuronLayer {
       for (uint i = 0; i < num_cells; ++i) {
         update_[i] = 0;
         uint offset = output_size + input_size;
-        for (uint j = 0; j < transpose_.size(); ++j) {
+        for (uint j = 0; j < transpose_size_; ++j) {
           transpose_[j][i] = weights_[i][j + offset];
         }
       }
@@ -172,7 +180,7 @@ struct NeuronLayer {
         stored_error[i] += f;
       }
     }
-    std::slice slice = std::slice(output_size, input.size(), 1);
+    std::slice slice = std::slice(output_size, input_array_size_, 1);
     for (uint i = 0; i < num_cells; ++i) {
       update_[i][slice] += error_[i] * input;
       update_[i][input_symbol] += error_[i];
@@ -225,20 +233,20 @@ struct LstmLayer {
     UPDATE_LIMIT = update_limit;
     update_steps_ = 0;
 
-    forget_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_);
-    input_node_.Init(input_size, num_cells, horizon, output_size_ + input_size_);
-    output_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_);
+    forget_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size_);
+    input_node_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size_);
+    output_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size_);
 
     float val = sqrt(6.0f / float(input_size_ + output_size_));
     float low = -val;
     float range = 2 * val;
     for (uint i = 0; i < num_cells_; ++i) {
-      for (uint j = 0; j < forget_gate_.weights_[i].size(); ++j) {
+      for (uint j = 0; j < forget_gate_.input_size_; ++j) {
         forget_gate_.weights_[i][j] = low + Rand() * range;
         input_node_.weights_[i][j] = low + Rand() * range;
         output_gate_.weights_[i][j] = low + Rand() * range;
       }
-      forget_gate_.weights_[i][forget_gate_.weights_[i].size() - 1] = 1;
+      forget_gate_.weights_[i][forget_gate_.input_size_ - 1] = 1;
     }
   }
 
@@ -343,10 +351,17 @@ struct Lstm {
   float learning_rate_;
   uint num_cells_, epoch_, horizon_, input_size_, output_size_;
   uint last_input_ = -1;
+  uint num_layers_, hidden_size_, hidden_error_size_;
+  uint layer_input_size_0_, layer_input_size_rest_;
 
   NOINLINE
   void Init(uint input_size, uint output_size, uint num_cells, uint num_layers,
             uint horizon, float learning_rate, float gradient_clip, uint update_limit) {
+    num_layers_ = num_layers;
+    hidden_size_ = num_cells * num_layers + 1;
+    hidden_error_size_ = num_cells;
+    layer_input_size_0_ = 1 + num_cells + input_size;
+    layer_input_size_rest_ = input_size + 1 + num_cells * 2;
     input_history_.resize(horizon);
     hidden_.resize(num_cells * num_layers + 1);
     hidden_error_.resize(num_cells);
@@ -376,23 +391,26 @@ struct Lstm {
     output_size_ = output_size;
     last_input_ = -1;
 
-    hidden_[hidden_.size() - 1] = 1;
+    hidden_[hidden_size_ - 1] = 1;
     for (uint epoch = 0; epoch < horizon; ++epoch) {
-      layer_input_[epoch][0].resize(1 + num_cells + input_size);
-      for (uint i = 0; i < num_layers; ++i) {
-        layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
+      layer_input_[epoch][0].resize(layer_input_size_0_);
+      layer_input_[epoch][0][layer_input_size_0_ - 1] = 1;
+      for (uint i = 1; i < num_layers; ++i) {
+        layer_input_[epoch][i][layer_input_size_rest_ - 1] = 1;
       }
     }
     layers_.resize(num_layers);
-    for (uint i = 0; i < num_layers; ++i) {
-      layers_[i].Init(layer_input_[0][i].size() + output_size, input_size_, output_size_,
+    layers_[0].Init(layer_input_size_0_ + output_size, input_size_, output_size_,
+                    num_cells, horizon, gradient_clip, learning_rate, update_limit);
+    for (uint i = 1; i < num_layers; ++i) {
+      layers_[i].Init(layer_input_size_rest_ + output_size, input_size_, output_size_,
                       num_cells, horizon, gradient_clip, learning_rate, update_limit);
     }
   }
 
   NOINLINE
   void SetInput(const std::valarray<float>& input) {
-    for (uint i = 0; i < layers_.size(); ++i) {
+    for (uint i = 0; i < num_layers_; ++i) {
       std::copy(begin(input), begin(input) + input_size_, begin(layer_input_[epoch_][i]));
     }
   }
@@ -405,11 +423,11 @@ struct Lstm {
     input_history_[last_epoch] = input;
     if (epoch_ == 0) {
       for (uint epoch = horizon_ - 1; epoch!=-1; --epoch) {
-        for (uint layer = layers_.size() - 1; layer!=-1; --layer) {
+        for (uint layer = num_layers_ - 1; layer!=-1; --layer) {
           uint offset = layer * num_cells_;
           for (uint i = 0; i < output_size_; ++i) {
             float error = (i == input_history_[epoch]) ? (output_[epoch][i] - 1) : output_[epoch][i];
-            for (uint j = 0; j < hidden_error_.size(); ++j) {
+            for (uint j = 0; j < hidden_error_size_; ++j) {
               hidden_error_[j] += output_layer_[epoch][i][j + offset] * error;
             }
           }
@@ -432,13 +450,13 @@ struct Lstm {
 
   NOINLINE
   std::valarray<float>& Predict(uint input) {
-    for (uint i = 0; i < layers_.size(); ++i) {
+    for (uint i = 0; i < num_layers_; ++i) {
       auto start = begin(hidden_) + i * num_cells_;
       std::copy(start, start + num_cells_, begin(layer_input_[epoch_][i]) +
           input_size_);
       layers_[i].ForwardPass(layer_input_[epoch_][i], input, &hidden_, i *
           num_cells_);
-      if (i < layers_.size() - 1) {
+      if (i < num_layers_ - 1) {
         auto start2 = begin(layer_input_[epoch_][i + 1]) + num_cells_ +
             input_size_;
         std::copy(start, start + num_cells_, start2);
@@ -446,7 +464,7 @@ struct Lstm {
     }
     for (uint i = 0; i < output_size_; ++i) {
       float sum = 0;
-      for (uint j = 0; j < hidden_.size(); ++j) {
+      for (uint j = 0; j < hidden_size_; ++j) {
         sum += hidden_[j] * output_layer_[epoch_][i][j];
       }
       output_[epoch_][i] = exp(sum);

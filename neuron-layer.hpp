@@ -8,9 +8,17 @@ struct NeuronLayer {
       beta_, beta_u_, beta_m_, beta_v_;
   std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
       transpose_, norm_;
+  unsigned int num_cells_, input_size_, transpose_size_;
+  int horizon_;
+  unsigned int input_array_size_;
 
   void Init(unsigned int input_size, unsigned int num_cells, int horizon,
-            int offset) {
+            int offset, unsigned int input_array_size) {
+    num_cells_ = num_cells;
+    input_size_ = input_size;
+    horizon_ = horizon;
+    transpose_size_ = input_size - offset;
+    input_array_size_ = input_array_size;
     error_.resize(num_cells);
     ivar_.resize(horizon);
     gamma_ = std::valarray<float>(1.0, num_cells);
@@ -77,7 +85,7 @@ struct NeuronLayer {
                    unsigned int num_cells, unsigned int output_size, unsigned int epoch) {
     for (unsigned int i = 0; i < num_cells; ++i) {
       float f = weights_[i][input_symbol];
-      for (unsigned int j = 0; j < input.size(); ++j) {
+      for (unsigned int j = 0; j < input_array_size_; ++j) {
         f += input[j] * weights_[i][output_size + j];
       }
       norm_[epoch][i] = f;
@@ -106,7 +114,7 @@ struct NeuronLayer {
       for (unsigned int i = 0; i < num_cells; ++i) {
         update_[i] = 0;
         unsigned int offset = output_size + input_size;
-        for (unsigned int j = 0; j < transpose_.size(); ++j) {
+        for (unsigned int j = 0; j < transpose_size_; ++j) {
           transpose_[j][i] = weights_[i][j + offset];
         }
       }
@@ -133,7 +141,7 @@ struct NeuronLayer {
         stored_error[i] += f;
       }
     }
-    std::slice slice = std::slice(output_size, input.size(), 1);
+    std::slice slice = std::slice(output_size, input_array_size_, 1);
     for (unsigned int i = 0; i < num_cells; ++i) {
       update_[i][slice] += error_[i] * input;
       update_[i][input_symbol] += error_[i];
