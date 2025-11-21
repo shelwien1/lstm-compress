@@ -47,8 +47,8 @@ template<uint NUM_CELLS, uint HORIZON, uint LEARNING_RATE_X100000, uint UPDATE_L
 struct NeuronLayer {
   float error_[NUM_CELLS], ivar_[HORIZON], gamma_[NUM_CELLS], gamma_u_[NUM_CELLS], gamma_m_[NUM_CELLS], gamma_v_[NUM_CELLS];
   float beta_[NUM_CELLS], beta_u_[NUM_CELLS], beta_m_[NUM_CELLS], beta_v_[NUM_CELLS];
-  std::vector<std::vector<float>> weights_, state_, update_, m_, v_,
-      transpose_, norm_;
+  std::vector<float> weights_[NUM_CELLS], state_[HORIZON], update_[NUM_CELLS], m_[NUM_CELLS], v_[NUM_CELLS];
+  std::vector<float> transpose_[256], norm_[HORIZON];
   uint input_size_, transpose_size_;
   uint input_array_size_;
 
@@ -57,31 +57,24 @@ struct NeuronLayer {
     transpose_size_ = input_size - offset;
     input_array_size_ = input_array_size;
     for (uint i = 0; i < NUM_CELLS; ++i) gamma_[i] = 1.0;
-    weights_.resize(NUM_CELLS);
     for (uint i = 0; i < NUM_CELLS; ++i) {
       weights_[i].resize(input_size);
     }
-    state_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       state_[i].resize(NUM_CELLS);
     }
-    update_.resize(NUM_CELLS);
     for (uint i = 0; i < NUM_CELLS; ++i) {
       update_[i].resize(input_size);
     }
-    m_.resize(NUM_CELLS);
     for (uint i = 0; i < NUM_CELLS; ++i) {
       m_[i].resize(input_size);
     }
-    v_.resize(NUM_CELLS);
     for (uint i = 0; i < NUM_CELLS; ++i) {
       v_[i].resize(input_size);
     }
-    transpose_.resize(input_size - offset);
     for (uint i = 0; i < input_size - offset; ++i) {
       transpose_[i].resize(NUM_CELLS);
     }
-    norm_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       norm_[i].resize(NUM_CELLS);
     }
@@ -230,21 +223,18 @@ struct LstmLayer {
   using NLayer = NeuronLayer<NUM_CELLS, HORIZON, LEARNING_RATE_X100000, UPDATE_LIMIT>;
 
   float state_[NUM_CELLS], state_error_[NUM_CELLS], stored_error_[NUM_CELLS];
-  std::vector<std::vector<float>> tanh_state_, input_gate_state_, last_state_;
+  std::vector<float> tanh_state_[HORIZON], input_gate_state_[HORIZON], last_state_[HORIZON];
   uint epoch_, input_size_, output_size_;
   qword update_steps_ = 0;
   NLayer forget_gate_, input_node_, output_gate_;
 
   void Init(uint input_size, uint auxiliary_input_size, uint output_size) {
-    tanh_state_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       tanh_state_[i].resize(NUM_CELLS);
     }
-    input_gate_state_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       input_gate_state_[i].resize(NUM_CELLS);
     }
-    last_state_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       last_state_[i].resize(NUM_CELLS);
     }
@@ -373,8 +363,8 @@ struct Lstm {
   std::vector<LLayer> layers_;
   uint8_t input_history_[HORIZON];
   float hidden_[NUM_CELLS * NUM_LAYERS + 1], hidden_error_[NUM_CELLS];
-  std::vector<std::vector<std::vector<float>>> layer_input_, output_layer_;
-  std::vector<std::vector<float>> output_;
+  std::vector<std::vector<float>> layer_input_[HORIZON], output_layer_[HORIZON];
+  std::vector<float> output_[HORIZON];
   uint epoch_, input_size_, output_size_;
   uint last_input_ = -1;
   uint hidden_size_, hidden_error_size_;
@@ -386,21 +376,18 @@ struct Lstm {
     hidden_error_size_ = NUM_CELLS;
     layer_input_size_0_ = 1 + NUM_CELLS + input_size;
     layer_input_size_rest_ = input_size + 1 + NUM_CELLS * 2;
-    layer_input_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       layer_input_[i].resize(NUM_LAYERS);
       for (uint j = 0; j < NUM_LAYERS; ++j) {
         layer_input_[i][j].resize(input_size + 1 + NUM_CELLS * 2);
       }
     }
-    output_layer_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       output_layer_[i].resize(output_size);
       for (uint j = 0; j < output_size; ++j) {
         output_layer_[i][j].resize(NUM_CELLS * NUM_LAYERS + 1);
       }
     }
-    output_.resize(HORIZON);
     for (uint i = 0; i < HORIZON; ++i) {
       output_[i].resize(output_size);
       for (uint j = 0; j < output_size; ++j) {
