@@ -45,11 +45,25 @@ uint flen( FILE* f ) {
 
 template<uint NUM_CELLS, uint HORIZON, uint LEARNING_RATE_X100000, uint UPDATE_LIMIT>
 struct NeuronLayer {
-  float error_[NUM_CELLS], ivar_[HORIZON], gamma_[NUM_CELLS], gamma_u_[NUM_CELLS], gamma_m_[NUM_CELLS], gamma_v_[NUM_CELLS];
-  float beta_[NUM_CELLS], beta_u_[NUM_CELLS], beta_m_[NUM_CELLS], beta_v_[NUM_CELLS];
-  std::vector<float> weights_[NUM_CELLS], state_[HORIZON], update_[NUM_CELLS], m_[NUM_CELLS], v_[NUM_CELLS];
-  std::vector<float> transpose_[256], norm_[HORIZON];
-  uint input_size_, transpose_size_;
+  float error_[NUM_CELLS];
+  float ivar_[HORIZON];
+  float gamma_[NUM_CELLS];
+  float gamma_u_[NUM_CELLS];
+  float gamma_m_[NUM_CELLS];
+  float gamma_v_[NUM_CELLS];
+  float beta_[NUM_CELLS];
+  float beta_u_[NUM_CELLS];
+  float beta_m_[NUM_CELLS];
+  float beta_v_[NUM_CELLS];
+  std::vector<float> weights_[NUM_CELLS];
+  std::vector<float> state_[HORIZON];
+  std::vector<float> update_[NUM_CELLS];
+  std::vector<float> m_[NUM_CELLS];
+  std::vector<float> v_[NUM_CELLS];
+  std::vector<float> transpose_[256];
+  std::vector<float> norm_[HORIZON];
+  uint input_size_;
+  uint transpose_size_;
   uint input_array_size_;
 
   void Init(uint input_size, uint offset, uint input_array_size) {
@@ -222,11 +236,19 @@ template<uint NUM_CELLS, uint HORIZON, uint LEARNING_RATE_X100000, uint GRADIENT
 struct LstmLayer {
   using NLayer = NeuronLayer<NUM_CELLS, HORIZON, LEARNING_RATE_X100000, UPDATE_LIMIT>;
 
-  float state_[NUM_CELLS], state_error_[NUM_CELLS], stored_error_[NUM_CELLS];
-  std::vector<float> tanh_state_[HORIZON], input_gate_state_[HORIZON], last_state_[HORIZON];
-  uint epoch_, input_size_, output_size_;
+  float state_[NUM_CELLS];
+  float state_error_[NUM_CELLS];
+  float stored_error_[NUM_CELLS];
+  std::vector<float> tanh_state_[HORIZON];
+  std::vector<float> input_gate_state_[HORIZON];
+  std::vector<float> last_state_[HORIZON];
+  uint epoch_;
+  uint input_size_;
+  uint output_size_;
   qword update_steps_ = 0;
-  NLayer forget_gate_, input_node_, output_gate_;
+  NLayer forget_gate_;
+  NLayer input_node_;
+  NLayer output_gate_;
 
   void Init(uint input_size, uint auxiliary_input_size, uint output_size) {
     for (uint i = 0; i < HORIZON; ++i) {
@@ -362,13 +384,19 @@ struct Lstm {
 
   std::vector<LLayer> layers_;
   uint8_t input_history_[HORIZON];
-  float hidden_[NUM_CELLS * NUM_LAYERS + 1], hidden_error_[NUM_CELLS];
-  std::vector<std::vector<float>> layer_input_[HORIZON], output_layer_[HORIZON];
+  float hidden_[NUM_CELLS * NUM_LAYERS + 1];
+  float hidden_error_[NUM_CELLS];
+  std::vector<std::vector<float>> layer_input_[HORIZON];
+  std::vector<std::vector<float>> output_layer_[HORIZON];
   std::vector<float> output_[HORIZON];
-  uint epoch_, input_size_, output_size_;
+  uint epoch_;
+  uint input_size_;
+  uint output_size_;
   uint last_input_ = -1;
-  uint hidden_size_, hidden_error_size_;
-  uint layer_input_size_0_, layer_input_size_rest_;
+  uint hidden_size_;
+  uint hidden_error_size_;
+  uint layer_input_size_0_;
+  uint layer_input_size_rest_;
 
   NOINLINE
   void Init(uint input_size, uint output_size) {
