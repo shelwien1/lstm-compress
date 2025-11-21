@@ -60,6 +60,81 @@ struct NeuronLayer {
       beta_, beta_u_, beta_m_, beta_v_;
   std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
       transpose_, norm_;
+
+  void ForwardPass(const std::valarray<float>& input, uint input_symbol,
+                   uint num_cells, uint output_size, uint epoch) {
+    for (uint i = 0; i < num_cells; ++i) {
+      float f = weights_[i][input_symbol];
+      for (uint j = 0; j < input.size(); ++j) {
+        f += input[j] * weights_[i][output_size + j];
+      }
+      norm_[epoch][i] = f;
+    }
+    ivar_[epoch] = 1.0f / sqrt(((norm_[epoch] * norm_[epoch]).sum() / num_cells) + 1e-5f);
+    norm_[epoch] *= ivar_[epoch];
+    state_[epoch] = norm_[epoch] * gamma_ + beta_;
+  }
+
+  template<typename AdamFunc>
+  void BackwardPass(const std::valarray<float>& input,
+                    uint epoch,
+                    uint layer,
+                    uint input_symbol,
+                    std::valarray<float>* hidden_error,
+                    uint num_cells,
+                    uint horizon,
+                    uint output_size,
+                    uint input_size,
+                    std::valarray<float>& stored_error,
+                    float learning_rate,
+                    qword update_steps,
+                    AdamFunc adam_func) {
+    if (epoch == horizon - 1) {
+      gamma_u_ = 0;
+      beta_u_ = 0;
+      for (uint i = 0; i < num_cells; ++i) {
+        update_[i] = 0;
+        uint offset = output_size + input_size;
+        for (uint j = 0; j < transpose_.size(); ++j) {
+          transpose_[j][i] = weights_[i][j + offset];
+        }
+      }
+    }
+    beta_u_ += error_;
+    gamma_u_ += error_ * norm_[epoch];
+    error_ *= gamma_ * ivar_[epoch];
+    error_ -= ((error_ * norm_[epoch]).sum() / num_cells) * norm_[epoch];
+    if (layer > 0) {
+      for (uint i = 0; i < num_cells; ++i) {
+        float f = 0;
+        for (uint j = 0; j < num_cells; ++j) {
+          f += error_[j] * transpose_[num_cells + i][j];
+        }
+        (*hidden_error)[i] += f;
+      }
+    }
+    if (epoch > 0) {
+      for (uint i = 0; i < num_cells; ++i) {
+        float f = 0;
+        for (uint j = 0; j < num_cells; ++j) {
+          f += error_[j] * transpose_[i][j];
+        }
+        stored_error[i] += f;
+      }
+    }
+    std::slice slice = std::slice(output_size, input.size(), 1);
+    for (uint i = 0; i < num_cells; ++i) {
+      update_[i][slice] += error_[i] * input;
+      update_[i][input_symbol] += error_[i];
+    }
+    if (epoch == 0) {
+      for (uint i = 0; i < num_cells; ++i) {
+        adam_func(&update_[i], &m_[i], &v_[i], &weights_[i], learning_rate, update_steps);
+      }
+      adam_func(&gamma_u_, &gamma_m_, &gamma_v_, &gamma_, learning_rate, update_steps);
+      adam_func(&beta_u_, &beta_m_, &beta_v_, &beta_, learning_rate, update_steps);
+    }
+  }
 };
 //--- #include "lstm-layer.hpp"
 
@@ -199,68 +274,21 @@ struct LstmLayer {
   }
 
   void ForwardPass(NeuronLayer& neurons, const std::valarray<float>& input, uint input_symbol) {
-    for (uint i = 0; i < num_cells_; ++i) {
-      float f = neurons.weights_[i][input_symbol];
-      for (uint j = 0; j < input.size(); ++j) {
-        f += input[j] * neurons.weights_[i][output_size_ + j];
-      }
-      neurons.norm_[epoch_][i] = f;
-    }
-    neurons.ivar_[epoch_] = 1.0f / sqrt(((neurons.norm_[epoch_] *
-        neurons.norm_[epoch_]).sum() / num_cells_) + 1e-5f);
-    neurons.norm_[epoch_] *= neurons.ivar_[epoch_];
-    neurons.state_[epoch_] = neurons.norm_[epoch_] * neurons.gamma_ +
-        neurons.beta_;
+    neurons.ForwardPass(input, input_symbol, num_cells_, output_size_, epoch_);
   }
 
   void BackwardPass(NeuronLayer& neurons, const std::valarray<float>&input,
       uint epoch, uint layer, uint input_symbol,
       std::valarray<float>* hidden_error) {
-    if (epoch == horizon_ - 1) {
-      neurons.gamma_u_ = 0;
-      neurons.beta_u_ = 0;
-      for (uint i = 0; i < num_cells_; ++i) {
-        neurons.update_[i] = 0;
-        uint offset = output_size_ + input_size_;
-        for (uint j = 0; j < neurons.transpose_.size(); ++j) {
-          neurons.transpose_[j][i] = neurons.weights_[i][j + offset];
-        }
-      }
-    }
-    neurons.beta_u_ += neurons.error_;
-    neurons.gamma_u_ += neurons.error_ * neurons.norm_[epoch];
-    neurons.error_ *= neurons.gamma_ * neurons.ivar_[epoch];
-    neurons.error_ -= ((neurons.error_ * neurons.norm_[epoch]).sum() / num_cells_) * neurons.norm_[epoch];
-    if (layer > 0) {
-      for (uint i = 0; i < num_cells_; ++i) {
-        float f = 0;
-        for (uint j = 0; j < num_cells_; ++j) {
-          f += neurons.error_[j] * neurons.transpose_[num_cells_ + i][j];
-        }
-        (*hidden_error)[i] += f;
-      }
-    }
-    if (epoch > 0) {
-      for (uint i = 0; i < num_cells_; ++i) {
-        float f = 0;
-        for (uint j = 0; j < num_cells_; ++j) {
-          f += neurons.error_[j] * neurons.transpose_[i][j];
-        }
-        stored_error_[i] += f;
-      }
-    }
-    std::slice slice = std::slice(output_size_, input.size(), 1);
-    for (uint i = 0; i < num_cells_; ++i) {
-      neurons.update_[i][slice] += neurons.error_[i] * input;
-      neurons.update_[i][input_symbol] += neurons.error_[i];
-    }
-    if (epoch == 0) {
-      for (uint i = 0; i < num_cells_; ++i) {
-        Adam(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i], &neurons.weights_[i], learning_rate_, update_steps_);
-      }
-      Adam(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_, &neurons.gamma_, learning_rate_, update_steps_);
-      Adam(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_, &neurons.beta_, learning_rate_, update_steps_);
-    }
+    auto adam_lambda = [this](std::valarray<float>* g, std::valarray<float>* m,
+                              std::valarray<float>* v, std::valarray<float>* w,
+                              float lr, unsigned long long t) {
+      this->Adam(g, m, v, w, lr, t);
+    };
+    neurons.BackwardPass(input, epoch, layer, input_symbol, hidden_error,
+                         num_cells_, horizon_, output_size_, input_size_,
+                         stored_error_, learning_rate_, update_steps_,
+                         adam_lambda);
   }
 };
 //--- #include "lstm.hpp"
