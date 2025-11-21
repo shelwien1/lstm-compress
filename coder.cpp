@@ -503,20 +503,13 @@ struct UnifiedModel {
     offset = 0;
     for (i = 0; i < 256; i++) {
       byte_map_[i] = offset;
-      if (vocab_[i]) ++offset;
-      ppmd_probs_[i] = 1.0 / 256;
+      if (vocab_[i]) {
+        ++offset;
+        ppmd_probs_[i] = 1.0 / 256;
+      } else {
+        ppmd_probs_[i] = 0;
+      }
       lstm_probs_[i] = 1.0 / 256;
-    }
-  }
-
-  const float* BytePredict() {
-    return ppmd_probs_;
-  }
-
-  void ByteUpdate() {
-    int i;
-    for (i = 0; i < 256; ++i) {
-      if (!vocab_[i]) ppmd_probs_[i] = 0;
     }
   }
 
@@ -527,10 +520,13 @@ struct UnifiedModel {
     ppmd_model_.ppmd_UpdateByte(byte & 0xFF);
     ppmd_model_.ppmd_PrepareByte();
     for (i = 0; i < 256; ++i) {
-      ppmd_probs_[i] = ppmd_model_.sqp[i];
-      if (ppmd_probs_[i] < 1) ppmd_probs_[i] = 1;
+      if (vocab_[i]) {
+        ppmd_probs_[i] = ppmd_model_.sqp[i];
+        if (ppmd_probs_[i] < 1) ppmd_probs_[i] = 1;
+      } else {
+        ppmd_probs_[i] = 0;
+      }
     }
-    ByteUpdate();
     sum = 0;
     for (i = 0; i < 256; ++i) sum += ppmd_probs_[i];
     for (i = 0; i < 256; ++i) ppmd_probs_[i] /= sum;
@@ -640,10 +636,9 @@ int main( int argc, char** argv ) {
   srand(0xDEADBEEF);
   lstm.Init(total);
   M.Init(PPMD_ORDER, PPMD_MEMORY, cmap, &lstm);
-  M.ByteUpdate();
 
   // Initialize PPMD predictions
-  p = M.BytePredict();
+  p = M.ppmd_probs_;
 
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
@@ -668,7 +663,7 @@ int main( int argc, char** argv ) {
     if( f_DEC==1 ) putc(c,g);
 
     M.ByteUpdate(c);
-    p = M.BytePredict();
+    p = M.ppmd_probs_;
     M.lstm_->SetInput(p);
     M.Update(c);
 
