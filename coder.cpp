@@ -338,16 +338,17 @@ struct Lstm {
   float layer_input_[HORIZON][NUM_LAYERS][MAX_LAYER_INPUT_SIZE_a];
   float output_layer_[HORIZON][MAX_OUTPUT_SIZE][NCmNLp1_a];
   float output_[HORIZON][MAX_OUTPUT_SIZE];
-  uint num_cells_, epoch_, horizon_, output_size_;
+  uint num_cells_, epoch_, horizon_, input_size_, output_size_;
   int last_input_;
 
 
   NOINLINE
-  void Init(uint output_size) {
+  void Init(uint input_size, uint output_size) {
     int h, epoch;
     uint i, j, l;
 //printf( "Lstm @ %I64X\n", this );
     last_input_ = -1;
+    input_size_ = input_size;
     // Initialize layer_input_ arrays to 0
     for (h = 0; h < HORIZON; ++h) {
       for (l = 0; l < NUM_LAYERS; ++l) {
@@ -380,17 +381,17 @@ struct Lstm {
     for (epoch = 0; epoch < HORIZON; ++epoch) {
       input_history_[epoch] = 0;
       // Set the last element to 1 for each layer
-      // Layer 0 uses size (1 + NUM_CELLS + INPUT_SIZE), last element at index (NUM_CELLS + INPUT_SIZE)
-      layer_input_[epoch][0][NUM_CELLS + INPUT_SIZE] = 1;
+      // Layer 0 uses size (1 + NUM_CELLS + input_size_), last element at index (NUM_CELLS + input_size_)
+      layer_input_[epoch][0][NUM_CELLS + input_size_] = 1;
       // Other layers use size MAX_LAYER_INPUT_SIZE, last element at index (MAX_LAYER_INPUT_SIZE - 1)
       for (i = 1; i < NUM_LAYERS; ++i) {
         layer_input_[epoch][i][MAX_LAYER_INPUT_SIZE - 1] = 1;
       }
     }
     // Initialize layers with proper input sizes
-    // Layer 0: (1 + NUM_CELLS + INPUT_SIZE) + output_size
+    // Layer 0: (1 + NUM_CELLS + input_size_) + output_size
     // Other layers: MAX_LAYER_INPUT_SIZE + output_size
-    layers_[0].Init((1 + NUM_CELLS + INPUT_SIZE) + output_size, output_size);
+    layers_[0].Init((1 + NUM_CELLS + input_size_) + output_size, output_size);
     for (i = 1; i < NUM_LAYERS; ++i) {
       layers_[i].Init(MAX_LAYER_INPUT_SIZE + output_size, output_size);
     }
@@ -401,7 +402,7 @@ struct Lstm {
   void SetInput(const float* input) {
     uint i, j;
     for (i = 0; i < NUM_LAYERS; ++i) {
-      for (j = 0; j < INPUT_SIZE; ++j) layer_input_[epoch_][i][j] = input[j];
+      for (j = 0; j < input_size_; ++j) layer_input_[epoch_][i][j] = input[j];
     }
   }
 
@@ -426,7 +427,7 @@ struct Lstm {
           if (prev_epoch == -1) prev_epoch = horizon_ - 1;
           input_symbol = input_history_[prev_epoch];
           if (epoch == 0) input_symbol = old_input;
-          uint layer_input_size = (layer == 0) ? (1 + NUM_CELLS + INPUT_SIZE) : MAX_LAYER_INPUT_SIZE;
+          uint layer_input_size = (layer == 0) ? (1 + NUM_CELLS + input_size_) : MAX_LAYER_INPUT_SIZE;
           layers_[layer].BackwardPass(layer_input_[epoch][layer], layer_input_size, epoch, layer, input_symbol, hidden_error_);
         }
       }
@@ -452,12 +453,12 @@ struct Lstm {
     for (i = 0; i < NUM_LAYERS; ++i) {
       hidden_offset = i * num_cells_;
       for (j = 0; j < num_cells_; ++j) {
-        layer_input_[epoch_][i][INPUT_SIZE + j] = hidden_[hidden_offset + j];
+        layer_input_[epoch_][i][input_size_ + j] = hidden_[hidden_offset + j];
       }
-      uint layer_input_size = (i == 0) ? (1 + NUM_CELLS + INPUT_SIZE) : MAX_LAYER_INPUT_SIZE;
+      uint layer_input_size = (i == 0) ? (1 + NUM_CELLS + input_size_) : MAX_LAYER_INPUT_SIZE;
       layers_[i].ForwardPass(layer_input_[epoch_][i], layer_input_size, input, hidden_, i * num_cells_);
       if (i < NUM_LAYERS - 1) {
-        dest_offset = num_cells_ + INPUT_SIZE;
+        dest_offset = num_cells_ + input_size_;
         for (j = 0; j < num_cells_; ++j) {
           layer_input_[epoch_][i + 1][dest_offset + j] = hidden_[hidden_offset + j];
         }
@@ -488,6 +489,7 @@ struct UnifiedModel {
   char* vocab_;
   int byte_map_[256];
   float ppmd_probs_[256];
+  float packedprobs[256];
   float lstm_probs_[256];
 
   NOINLINE
@@ -520,6 +522,11 @@ struct UnifiedModel {
     for (i = 0; i < 256; ++i) ppmd_probs_[i] /= sum;
   }
 
+  void Make_Packed( float* ppmd_probs_ ) {
+    uint i,j;
+    for( i=0,j=0; i<256; i++ ) if( vocab_[i] ) packedprobs[j++]=ppmd_probs_[i];
+  }
+
   NOINLINE
   void UpdatePPMD(uint byte) {
     int i;
@@ -548,7 +555,7 @@ struct UnifiedModel {
         lstm_probs_[i] = 0;
       }
     }
-    Renorm_probs(lstm_probs_);
+    //Renorm_probs(lstm_probs_); // already done in Predict
   }
 };
 
@@ -638,7 +645,7 @@ int main( int argc, char** argv ) {
   for( i=0,total=0; i<CNUM; i++ ) total+=( cmap[i]=rc.rc_BProcess(SCALE/2,cmap[i]) );
 
   srand(0xDEADBEEF);
-  lstm.Init(total);
+  lstm.Init(total, total);
   M.Init(PPMD_ORDER, PPMD_MEMORY, cmap, &lstm);
 
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
@@ -664,7 +671,8 @@ int main( int argc, char** argv ) {
     if( f_DEC==1 ) putc(c,g);
 
     M.UpdatePPMD(c);
-    M.lstm_->SetInput(M.ppmd_probs_);
+    M.Make_Packed(M.ppmd_probs_);
+    M.lstm_->SetInput(M.packedprobs);
     M.UpdateLSTM(c);
 
 /*if( ftell(rc.f)>(1<<20) ) break;*/
