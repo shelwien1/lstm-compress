@@ -233,9 +233,9 @@ struct LstmLayer {
     UPDATE_LIMIT = update_limit;
     update_steps_ = 0;
 
-    forget_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size_);
-    input_node_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size_);
-    output_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size_);
+    forget_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size - output_size_);
+    input_node_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size - output_size_);
+    output_gate_.Init(input_size, num_cells, horizon, output_size_ + input_size_, input_size - output_size_);
 
     float val = sqrt(6.0f / float(input_size_ + output_size_));
     float low = -val;
