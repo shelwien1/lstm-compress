@@ -505,18 +505,24 @@ struct UnifiedModel {
       byte_map_[i] = offset;
       if (vocab_[i]) {
         ++offset;
-        ppmd_probs_[i] = 1.0 / 256;
+        lstm_probs_[i] = ppmd_probs_[i] = 1.0 / 256;
       } else {
-        ppmd_probs_[i] = 0;
+        lstm_probs_[i] = ppmd_probs_[i] = 0;
       }
-      lstm_probs_[i] = 1.0 / 256;
     }
+    Renorm_probs(ppmd_probs_);
+  }
+
+  void Renorm_probs( float* ppmd_probs_ ) {
+    uint i;
+    float sum = 0;
+    for (i = 0; i < 256; ++i) sum += ppmd_probs_[i];
+    for (i = 0; i < 256; ++i) ppmd_probs_[i] /= sum;
   }
 
   NOINLINE
-  void ByteUpdate(uint byte) {
+  void UpdatePPMD(uint byte) {
     int i;
-    float sum;
     ppmd_model_.ppmd_UpdateByte(byte & 0xFF);
     ppmd_model_.ppmd_PrepareByte();
     for (i = 0; i < 256; ++i) {
@@ -527,12 +533,10 @@ struct UnifiedModel {
         ppmd_probs_[i] = 0;
       }
     }
-    sum = 0;
-    for (i = 0; i < 256; ++i) sum += ppmd_probs_[i];
-    for (i = 0; i < 256; ++i) ppmd_probs_[i] /= sum;
+    Renorm_probs(ppmd_probs_);
   }
 
-  void Update(int sym) {
+  void UpdateLSTM(int sym) {
     const float* output = lstm_->Perceive(byte_map_[sym]);
     int i, offset;
     offset = 0;
@@ -544,6 +548,7 @@ struct UnifiedModel {
         lstm_probs_[i] = 0;
       }
     }
+    Renorm_probs(lstm_probs_);
   }
 };
 
@@ -577,7 +582,6 @@ int main( int argc, char** argv ) {
   uint f_DEC, i, j, c, pc, code, low, total, freq[CNUM], f_len, f_pos;
   FILE* f;
   FILE* g;
-  const float* p;
 
   printf( "sizeof(lstm)=%i; sizeof(UnifiedModel)=%i\n", int(sizeof(lstm)), int(sizeof(M)));
 
@@ -637,15 +641,12 @@ int main( int argc, char** argv ) {
   lstm.Init(total);
   M.Init(PPMD_ORDER, PPMD_MEMORY, cmap, &lstm);
 
-  // Initialize PPMD predictions
-  p = M.ppmd_probs_;
-
   for( f_pos=0; f_pos<f_len; f_pos++ ) {
 
     // Mix PPMD and LSTM predictions (adaptive weight)
     float mix_weight = 0.35f /*+ 0.15f * (float)Min<int>(f_pos/3,f_len) / (float)f_len*/;  // 0.4 to 0.7
     for( i=0,total=0; i<CNUM; i++ ) {
-      freq[i] = ((1.0f - mix_weight) * M.lstm_probs_[i] + mix_weight * p[i]) * SCALE;
+      freq[i] = ((1.0f - mix_weight) * M.lstm_probs_[i] + mix_weight * M.ppmd_probs_[i]) * SCALE;
       freq[i] += ((freq[i]==0) & cmap[i]);
       total += freq[i];
     }
@@ -662,10 +663,9 @@ int main( int argc, char** argv ) {
 
     if( f_DEC==1 ) putc(c,g);
 
-    M.ByteUpdate(c);
-    p = M.ppmd_probs_;
-    M.lstm_->SetInput(p);
-    M.Update(c);
+    M.UpdatePPMD(c);
+    M.lstm_->SetInput(M.ppmd_probs_);
+    M.UpdateLSTM(c);
 
 /*if( ftell(rc.f)>(1<<20) ) break;*/
   }
