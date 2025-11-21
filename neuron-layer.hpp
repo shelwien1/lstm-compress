@@ -4,22 +4,52 @@
 #include <valarray>
 
 struct NeuronLayer {
-  NeuronLayer(unsigned int input_size, unsigned int num_cells, int horizon,
-    int offset) : error_(num_cells), ivar_(horizon), gamma_(1.0, num_cells),
-    gamma_u_(num_cells), gamma_m_(num_cells), gamma_v_(num_cells),
-    beta_(num_cells), beta_u_(num_cells), beta_m_(num_cells),
-    beta_v_(num_cells), weights_(std::valarray<float>(input_size), num_cells),
-    state_(std::valarray<float>(num_cells), horizon),
-    update_(std::valarray<float>(input_size), num_cells),
-    m_(std::valarray<float>(input_size), num_cells),
-    v_(std::valarray<float>(input_size), num_cells),
-    transpose_(std::valarray<float>(num_cells), input_size - offset),
-    norm_(std::valarray<float>(num_cells), horizon) {}
-
   std::valarray<float> error_, ivar_, gamma_, gamma_u_, gamma_m_, gamma_v_,
       beta_, beta_u_, beta_m_, beta_v_;
   std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
       transpose_, norm_;
+
+  void Init(unsigned int input_size, unsigned int num_cells, int horizon,
+            int offset) {
+    error_.resize(num_cells);
+    ivar_.resize(horizon);
+    gamma_ = std::valarray<float>(1.0, num_cells);
+    gamma_u_.resize(num_cells);
+    gamma_m_.resize(num_cells);
+    gamma_v_.resize(num_cells);
+    beta_.resize(num_cells);
+    beta_u_.resize(num_cells);
+    beta_m_.resize(num_cells);
+    beta_v_.resize(num_cells);
+    weights_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      weights_[i].resize(input_size);
+    }
+    state_.resize(horizon);
+    for (int i = 0; i < horizon; ++i) {
+      state_[i].resize(num_cells);
+    }
+    update_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      update_[i].resize(input_size);
+    }
+    m_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      m_[i].resize(input_size);
+    }
+    v_.resize(num_cells);
+    for (unsigned int i = 0; i < num_cells; ++i) {
+      v_[i].resize(input_size);
+    }
+    transpose_.resize(input_size - offset);
+    for (int i = 0; i < input_size - offset; ++i) {
+      transpose_[i].resize(num_cells);
+    }
+    norm_.resize(horizon);
+    for (int i = 0; i < horizon; ++i) {
+      norm_[i].resize(num_cells);
+    }
+  }
 
   void Adam(std::valarray<float>* g, std::valarray<float>* m, std::valarray<float>* v,
             std::valarray<float>* w, float learning_rate, unsigned long long t, unsigned int update_limit) {
