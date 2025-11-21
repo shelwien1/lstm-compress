@@ -141,9 +141,10 @@ struct NeuronLayer {
         stored_error[i] += f;
       }
     }
-    std::slice slice = std::slice(output_size, input_array_size_, 1);
     for (unsigned int i = 0; i < num_cells; ++i) {
-      update_[i][slice] += error_[i] * input;
+      for (unsigned int j = 0; j < input_array_size_; ++j) {
+        update_[i][output_size + j] += error_[i] * input[j];
+      }
       update_[i][input_symbol] += error_[i];
     }
     if (epoch == 0) {

@@ -180,9 +180,10 @@ struct NeuronLayer {
         stored_error[i] += f;
       }
     }
-    std::slice slice = std::slice(output_size, input_array_size_, 1);
     for (uint i = 0; i < num_cells; ++i) {
-      update_[i][slice] += error_[i] * input;
+      for (uint j = 0; j < input_array_size_; ++j) {
+        update_[i][output_size + j] += error_[i] * input[j];
+      }
       update_[i][input_symbol] += error_[i];
     }
     if (epoch == 0) {
@@ -264,8 +265,9 @@ struct LstmLayer {
     state_ *= forget_gate_.state_[epoch_];
     state_ += input_node_.state_[epoch_] * input_gate_state_[epoch_];
     tanh_state_[epoch_] = tanh(state_);
-    std::slice slice = std::slice(hidden_start, num_cells_, 1);
-    (*hidden)[slice] = output_gate_.state_[epoch_] * tanh_state_[epoch_];
+    for (uint i = 0; i < num_cells_; ++i) {
+      (*hidden)[hidden_start + i] = output_gate_.state_[epoch_][i] * tanh_state_[epoch_][i];
+    }
     ++epoch_;
     if (epoch_ == horizon_) epoch_ = 0;
   }
@@ -411,7 +413,9 @@ struct Lstm {
   NOINLINE
   void SetInput(const std::valarray<float>& input) {
     for (uint i = 0; i < num_layers_; ++i) {
-      std::copy(begin(input), begin(input) + input_size_, begin(layer_input_[epoch_][i]));
+      for (uint j = 0; j < input_size_; ++j) {
+        layer_input_[epoch_][i][j] = input[j];
+      }
     }
   }
 
@@ -451,15 +455,15 @@ struct Lstm {
   NOINLINE
   std::valarray<float>& Predict(uint input) {
     for (uint i = 0; i < num_layers_; ++i) {
-      auto start = begin(hidden_) + i * num_cells_;
-      std::copy(start, start + num_cells_, begin(layer_input_[epoch_][i]) +
-          input_size_);
+      for (uint j = 0; j < num_cells_; ++j) {
+        layer_input_[epoch_][i][input_size_ + j] = hidden_[i * num_cells_ + j];
+      }
       layers_[i].ForwardPass(layer_input_[epoch_][i], input, &hidden_, i *
           num_cells_);
       if (i < num_layers_ - 1) {
-        auto start2 = begin(layer_input_[epoch_][i + 1]) + num_cells_ +
-            input_size_;
-        std::copy(start, start + num_cells_, start2);
+        for (uint j = 0; j < num_cells_; ++j) {
+          layer_input_[epoch_][i + 1][num_cells_ + input_size_ + j] = hidden_[i * num_cells_ + j];
+        }
       }
     }
     for (uint i = 0; i < output_size_; ++i) {
