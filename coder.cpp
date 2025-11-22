@@ -70,6 +70,12 @@ struct NeuronLayer {
   uint transpose_size_;    // layer0: 91 = NUM_CELLS+1, layer1: 181 = NUM_CELLS*2+1
   uint input_array_size_;  // layer0: 219, layer1: 309
 
+  // Adam optimizer parameters
+  float B1_;
+  float B2_;
+  float alpha_;
+  float eps_B2_;
+
   void Init(uint input_size, uint offset, uint input_array_size) {
     input_size_ = input_size;
     transpose_size_ = input_size - offset;
@@ -84,6 +90,12 @@ struct NeuronLayer {
     memset(v_, 0, sizeof(v_));
     memset(transpose_, 0, sizeof(transpose_));
     memset(norm_, 0, sizeof(norm_));
+
+    // Initialize Adam parameters to default values
+    B1_ = 0.0f;
+    B2_ = 0.0f;
+    alpha_ = 0.0f;
+    eps_B2_ = 0.0f;
   }
 
   static constexpr float constexpr_pow(float base, uint xp) {
@@ -121,28 +133,19 @@ struct NeuronLayer {
   }
 
   void Adam(pfloat g, pfloat m, pfloat v, pfloat w, qword t, uint size) {
-    constexpr float learning_rate = LEARNING_RATE_X100000 / 100000.0f;
-    const float beta1 = 0.025f, beta2 = 0.9999f, eps = 1e-6f;
+    const float beta1 = 0.025f, beta2 = 0.9999f;
     if( t<UPDATE_LIMIT ) {
-      //const float B2 = 1.0f / (1.0f - powf(beta2, t));
-      const float B1 = 1.0f / (1.0f - powf(beta1, t));
-      const float B2 = (1.0f - powf(beta2, t));
-      const float alpha = learning_rate * 0.1f / sqrtf(5e-5f * t + 1.0f) * B1 * sqrtf(B2);
-      const float eps_B2 = eps*B2;
       for(uint i = 0; i < size; i++) {
         m[i] *= beta1;
         m[i] += (1.0f - beta1) * g[i];
         v[i] *= beta2;
         v[i] += (1.0f - beta2) * g[i] * g[i];
-        //w[i] -= alpha * ((m[i] / (1.0f - powf(beta1, t))) / (sqrtf(v[i] / (1.0f - powf(beta2, t)) + eps)));
-        //w[i] -= alpha * m[i] / sqrtf(v[i] * B2 + eps);
-        w[i] -= alpha * m[i] / sqrtf(v[i] + eps_B2);
+        w[i] -= alpha_ * m[i] / sqrtf(v[i] + eps_B2_);
       }
     } else {
-      //alpha = learning_rate * 0.1f / sqrtf(5e-5f * UPDATE_LIMIT + 1.0f);
+      constexpr float scale = adam_scale_factor();
+      constexpr float eps_B2 = adam_eps_scaled();
       for(uint i = 0; i < size; i++) {
-        constexpr float scale = adam_scale_factor();
-        constexpr float eps_B2 = adam_eps_scaled();
         m[i] *= beta1;
         m[i] += (1.0f - beta1) * g[i];
         v[i] *= beta2;
@@ -296,6 +299,31 @@ struct LstmLayer {
     if( epoch_==HORIZON ) epoch_ = 0;
   }
 
+  void UpdateAdamParameters(qword t) {
+    constexpr float learning_rate = LEARNING_RATE_X100000 / 100000.0f;
+    const float beta1 = 0.025f, beta2 = 0.9999f, eps = 1e-6f;
+
+    const float B1 = 1.0f / (1.0f - powf(beta1, t));
+    const float B2 = (1.0f - powf(beta2, t));
+    const float alpha = learning_rate * 0.1f / sqrtf(5e-5f * t + 1.0f) * B1 * sqrtf(B2);
+    const float eps_B2 = eps * B2;
+
+    forget_gate_.B1_ = B1;
+    forget_gate_.B2_ = B2;
+    forget_gate_.alpha_ = alpha;
+    forget_gate_.eps_B2_ = eps_B2;
+
+    input_node_.B1_ = B1;
+    input_node_.B2_ = B2;
+    input_node_.alpha_ = alpha;
+    input_node_.eps_B2_ = eps_B2;
+
+    output_gate_.B1_ = B1;
+    output_gate_.B2_ = B2;
+    output_gate_.alpha_ = alpha;
+    output_gate_.eps_B2_ = eps_B2;
+  }
+
   void BackwardPass(const pfloat input, uint epoch, uint layer, uint input_symbol, pfloat hidden_error) {
     if( epoch==HORIZON-1 ) {
       for( uint i=0; i<NUM_CELLS; i++ ) {
@@ -323,7 +351,10 @@ struct LstmLayer {
         stored_error_[i] = 0;
       }
     } else {
-      if( update_steps_<UPDATE_LIMIT ) ++update_steps_;
+      if( update_steps_<UPDATE_LIMIT ) {
+        ++update_steps_;
+        UpdateAdamParameters(update_steps_);
+      }
     }
 
     forget_gate_.BackwardPass(input, epoch, layer, input_symbol, hidden_error, output_size_, input_size_, stored_error_, update_steps_);
