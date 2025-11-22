@@ -36,7 +36,7 @@ uint flen( FILE* f ) {
 
 //--- #include "neuron-layer.hpp"
 
-static constexpr uint ROW_a=4;
+static constexpr uint ROW_a=16/sizeof(float);
 static constexpr uint MAX_LSTM_INPSIZE=256;
 static constexpr uint MAX_LSTM_OUTSIZE=256;
 
@@ -58,21 +58,17 @@ struct NeuronLayer {
   ALIGN(64) float beta_u_[NUM_CELLS_a];
   ALIGN(64) float beta_m_[NUM_CELLS_a];
   ALIGN(64) float beta_v_[NUM_CELLS_a];
-  ALIGN(64) pfloat weights_[NUM_CELLS_a];
-  ALIGN(64) float B_weights_[NUM_CELLS][MAX_INPUT_SIZE_a];
+  ALIGN(64) float weights_[NUM_CELLS][MAX_INPUT_SIZE_a];
   ALIGN(64) float state_[HORIZON][NUM_CELLS_a];
-  ALIGN(64) pfloat update_[NUM_CELLS_a];
-  ALIGN(64) float B_update_[NUM_CELLS][MAX_INPUT_SIZE_a];
-  ALIGN(64) pfloat m_[NUM_CELLS_a];
-  ALIGN(64) float B_m_[NUM_CELLS][MAX_INPUT_SIZE_a];
-  ALIGN(64) pfloat v_[NUM_CELLS_a];
-  ALIGN(64) float B_v_[NUM_CELLS][MAX_INPUT_SIZE_a];
+  ALIGN(64) float update_[NUM_CELLS][MAX_INPUT_SIZE_a];
+  ALIGN(64) float m_[NUM_CELLS][MAX_INPUT_SIZE_a];
+  ALIGN(64) float v_[NUM_CELLS][MAX_INPUT_SIZE_a];
   ALIGN(64) float transpose_[MAX_LSTM_OUTSIZE][NUM_CELLS_a];
   ALIGN(64) float norm_[HORIZON][NUM_CELLS_a];
 
-  uint input_size_;
-  uint transpose_size_;
-  uint input_array_size_;
+  uint input_size_;        // layer0: 219+n_chars, layer1: 309+n_chars
+  uint transpose_size_;    // layer0: 91 = NUM_CELLS+1, layer1: 181 = NUM_CELLS*2+1
+  uint input_array_size_;  // layer0: 219, layer1: 309
 
   void Init(uint input_size, uint offset, uint input_array_size) {
     input_size_ = input_size;
@@ -81,29 +77,18 @@ struct NeuronLayer {
 
     for( uint i=0; i<NUM_CELLS; i++ ) gamma_[i] = 1.0;
 
-    for( uint i=0; i<NUM_CELLS; i++ ) weights_[i] = &B_weights_[i][0];
-    memset(B_weights_, 0, sizeof(B_weights_));
-
+    memset(weights_, 0, sizeof(weights_));
     memset(state_, 0, sizeof(state_));
-
-    for( uint i=0; i<NUM_CELLS; i++ ) update_[i] = &B_update_[i][0];
-    memset(B_update_, 0, sizeof(B_update_));
-
-    for( uint i=0; i<NUM_CELLS; i++ ) m_[i] = &B_m_[i][0];
-    memset(B_m_, 0, sizeof(B_m_));
-
-    for( uint i=0; i<NUM_CELLS; i++ ) v_[i] = &B_v_[i][0];
-    memset(B_v_, 0, sizeof(B_v_));
-
+    memset(update_, 0, sizeof(update_));
+    memset(m_, 0, sizeof(m_));
+    memset(v_, 0, sizeof(v_));
     memset(transpose_, 0, sizeof(transpose_));
     memset(norm_, 0, sizeof(norm_));
   }
 
   static constexpr float constexpr_pow(float base, uint xp) {
     float result = 1.0f;
-    for(uint i = 0; i < xp; i++) {
-      result *= base;
-    }
+    for(uint i = 0; i < xp; i++) result *= base;
     return result;
   }
 
@@ -151,7 +136,7 @@ struct NeuronLayer {
         v[i] += (1.0f - beta2) * g[i] * g[i];
         //w[i] -= alpha * ((m[i] / (1.0f - powf(beta1, t))) / (sqrtf(v[i] / (1.0f - powf(beta2, t)) + eps)));
         //w[i] -= alpha * m[i] / sqrtf(v[i] * B2 + eps);
-        w[i] -= alpha * m[i] / sqrtf(v[i] + eps*B2);
+        w[i] -= alpha * m[i] / sqrtf(v[i] + eps_B2);
       }
     } else {
       //alpha = learning_rate * 0.1f / sqrtf(5e-5f * UPDATE_LIMIT + 1.0f);
@@ -259,8 +244,8 @@ struct LstmLayer {
 
   qword update_steps_;
   uint epoch_;
-  uint input_size_;
-  uint output_size_;
+  uint input_size_;   // 128 (auxiliary_input_size from Lstm)
+  uint output_size_;  // n_chars (variable vocab size)
 
   void Init(uint input_size, uint auxiliary_input_size, uint output_size) {
     memset(tanh_state_, 0, sizeof(tanh_state_));
@@ -292,9 +277,9 @@ struct LstmLayer {
     for( uint i=0; i<NUM_CELLS; i++ ) {
       last_state_[epoch_][i] = state_[i];
     }
-    ForwardPass(forget_gate_, input, input_symbol);
-    ForwardPass(input_node_, input, input_symbol);
-    ForwardPass(output_gate_, input, input_symbol);
+    forget_gate_.ForwardPass(input, input_symbol, output_size_, epoch_);
+    input_node_.ForwardPass(input, input_symbol, output_size_, epoch_);
+    output_gate_.ForwardPass(input, input_symbol, output_size_, epoch_);
     for( uint i=0; i<NUM_CELLS; i++ ) {
       forget_gate_.state_[epoch_][i] = Logistic(forget_gate_.state_[epoch_][i]);
       input_node_.state_[epoch_][i] = tanh(input_node_.state_[epoch_][i]);
@@ -341,9 +326,9 @@ struct LstmLayer {
       if( update_steps_<UPDATE_LIMIT ) ++update_steps_;
     }
 
-    BackwardPass(forget_gate_, input, epoch, layer, input_symbol, hidden_error);
-    BackwardPass(input_node_, input, epoch, layer, input_symbol, hidden_error);
-    BackwardPass(output_gate_, input, epoch, layer, input_symbol, hidden_error);
+    forget_gate_.BackwardPass(input, epoch, layer, input_symbol, hidden_error, output_size_, input_size_, stored_error_, update_steps_);
+    input_node_.BackwardPass(input, epoch, layer, input_symbol, hidden_error, output_size_, input_size_, stored_error_, update_steps_);
+    output_gate_.BackwardPass(input, epoch, layer, input_symbol, hidden_error, output_size_, input_size_, stored_error_, update_steps_);
 
     ClipGradients(state_error_);
     ClipGradients(stored_error_);
@@ -364,14 +349,6 @@ struct LstmLayer {
       if( arr[i]<-gradient_clip ) arr[i] = -gradient_clip;
       else if( arr[i]>gradient_clip ) arr[i] = gradient_clip;
     }
-  }
-
-  void ForwardPass(NLayer& neurons, const pfloat input, uint input_symbol) {
-    neurons.ForwardPass(input, input_symbol, output_size_, epoch_);
-  }
-
-  void BackwardPass(NLayer& neurons, const pfloat input,uint epoch, uint layer, uint input_symbol, pfloat hidden_error) {
-    neurons.BackwardPass(input, epoch, layer, input_symbol, hidden_error,output_size_, input_size_,stored_error_, update_steps_);
   }
 };
 //--- #include "lstm.hpp"
@@ -397,13 +374,13 @@ struct Lstm {
   ALIGN(64) float output_[HORIZON][MAX_OUTPUT_SIZE_a];
 
   uint epoch_;
-  uint input_size_;
-  uint output_size_;
+  uint input_size_;              // 128
+  uint output_size_;             // n_chars (variable vocab size)
   uint last_input_;
-  uint hidden_size_;
-  uint hidden_error_size_;
-  uint layer_input_size_0_;
-  uint layer_input_size_rest_;
+  uint hidden_size_;             // 181 = NUM_CELLS*NUM_LAYERS+1 = 90*2+1
+  uint hidden_error_size_;       // 90 = NUM_CELLS
+  uint layer_input_size_0_;      // 219 = 1+NUM_CELLS+input_size = 1+90+128
+  uint layer_input_size_rest_;   // 309 = input_size+1+NUM_CELLS*2 = 128+1+180
 
   NOINLINE
   void Init(uint input_size, uint output_size) {
@@ -527,7 +504,6 @@ struct UnifiedModel {
   char* vocab_;
   byte byte_map_[256];
   float ppmd_probs_[256];
-  float packedprobs[256];
   float lstm_probs_[256];
 
   NOINLINE
@@ -558,12 +534,6 @@ struct UnifiedModel {
     float sum = 0;
     for (i = 0; i < 256; ++i) sum += ppmd_probs_[i];
     for (i = 0; i < 256; ++i) ppmd_probs_[i] /= sum;
-  }
-
-  NOINLINE
-  void Make_Packed( pfloat ppmd_probs_ ) {
-    uint i,j;
-    for( i=0,j=0; i<256; i++ ) if( vocab_[i] ) packedprobs[j++]=ppmd_probs_[i];
   }
 
   NOINLINE
