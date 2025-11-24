@@ -189,7 +189,7 @@ void buffered_printf(const char* fmt, ...) {
 
 // Worker thread for individual blocks
 void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
-                       RingBuffer& rq, std::atomic<uint>& progress) {
+                       RingBuffer& rq) {
   // Thread x processes blocks k*N+x
   for( uint i = thread_id; i < N; i += num_threads ) {
     uint block_idx = i;
@@ -202,14 +202,12 @@ void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
     res.csize = csize;
     res.ready = true;
     rq.push(res);
-
-    progress.fetch_add(1);
   }
 }
 
 // Worker thread for pair blocks
 void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
-                  RingBuffer& rq, std::atomic<qword>& progress) {
+                  RingBuffer& rq) {
   // Thread x processes pairs with linear index k*num_threads+x
   qword pair_idx = 0;
   for( uint i = 0; i < N; i++ ) {
@@ -225,8 +223,6 @@ void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
         res.csize = csize;
         res.ready = true;
         rq.push(res);
-
-        progress.fetch_add(1);
       }
       pair_idx++;
     }
@@ -281,13 +277,12 @@ int main( int argc, char** argv ) {
     results_individual.head = 0;
     results_individual.tail = 0;
     results_individual.finished = false;
-    std::atomic<uint> progress(0);
     std::thread* threads[max_threads];
 
     // Launch worker threads
     for( int t = 0; t < num_threads; t++ ) {
       threads[t] = new std::thread(worker_individual, t, num_threads, I, N, f,
-                                    std::ref(results_individual), std::ref(progress));
+                                    std::ref(results_individual));
     }
 
     // Main thread: collect and print results in order
@@ -368,13 +363,12 @@ int main( int argc, char** argv ) {
     results_pairs.head = 0;
     results_pairs.tail = 0;
     results_pairs.finished = false;
-    std::atomic<qword> progress(0);
     std::thread* threads[max_threads];
 
     // Launch worker threads
     for( int t = 0; t < num_threads; t++ ) {
       threads[t] = new std::thread(worker_pairs, t, num_threads, I, N, f,
-                                    std::ref(results_pairs), std::ref(progress));
+                                    std::ref(results_pairs));
     }
 
     // Main thread: collect and print results in order
