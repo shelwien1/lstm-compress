@@ -17,3 +17,6 @@ __pycache__/
 
 # Generated output files
 optimal_order-ds.txt
+
+# Debug files
+crash.txt
