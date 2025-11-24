@@ -82,34 +82,47 @@ struct Result {
 // Static ring buffer for thread-safe result passing
 struct RingBuffer {
   Result buffer[ringsize];
-  volatile uint head;  // Write position
-  volatile uint tail;  // Read position
+  std::atomic<qword> head;  // Write position (only incremented, wrap on access)
+  std::atomic<qword> tail;  // Read position (only incremented, wrap on access)
   volatile bool finished;
 
   RingBuffer() : head(0), tail(0), finished(false) {}
 
   // Push result to ring buffer (called by worker threads)
   void push(const Result& r) {
-    uint next_head = (head + 1) & (ringsize - 1);
+    // Atomically reserve a slot
+    qword my_head = head.fetch_add(1, std::memory_order_acquire);
+
     // Spin-wait if buffer is full
-    while (next_head == tail) {
+    while (my_head - tail.load(std::memory_order_acquire) >= ringsize) {
       // Buffer full, wait for consumer
       #if defined(__x86_64__) || defined(_M_X64)
       __builtin_ia32_pause();
       #endif
     }
-    buffer[head] = r;
-    head = next_head;
+
+    // Write to reserved slot (apply mask only when accessing array)
+    buffer[my_head & (ringsize - 1)] = r;
+
+    // Ensure write is visible
+    std::atomic_thread_fence(std::memory_order_release);
   }
 
   // Pop result from ring buffer (called by main thread)
   bool pop(Result& r) {
-    if (tail == head) {
+    qword current_tail = tail.load(std::memory_order_acquire);
+    qword current_head = head.load(std::memory_order_acquire);
+
+    if (current_tail >= current_head) {
       // Buffer empty
       return false;
     }
-    r = buffer[tail];
-    tail = (tail + 1) & (ringsize - 1);
+
+    // Read from buffer (apply mask only when accessing array)
+    r = buffer[current_tail & (ringsize - 1)];
+
+    // Advance tail (only increment, no masking)
+    tail.store(current_tail + 1, std::memory_order_release);
     return true;
   }
 
@@ -176,7 +189,7 @@ void buffered_printf(const char* fmt, ...) {
 
 // Worker thread for individual blocks
 void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
-                       RingBuffer& rq, std::atomic<uint>& progress) {
+                       RingBuffer& rq) {
   // Thread x processes blocks k*N+x
   for( uint i = thread_id; i < N; i += num_threads ) {
     uint block_idx = i;
@@ -189,14 +202,12 @@ void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
     res.csize = csize;
     res.ready = true;
     rq.push(res);
-
-    progress.fetch_add(1);
   }
 }
 
 // Worker thread for pair blocks
 void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
-                  RingBuffer& rq, std::atomic<qword>& progress) {
+                  RingBuffer& rq) {
   // Thread x processes pairs with linear index k*num_threads+x
   qword pair_idx = 0;
   for( uint i = 0; i < N; i++ ) {
@@ -212,8 +223,6 @@ void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
         res.csize = csize;
         res.ready = true;
         rq.push(res);
-
-        progress.fetch_add(1);
       }
       pair_idx++;
     }
@@ -268,13 +277,12 @@ int main( int argc, char** argv ) {
     results_individual.head = 0;
     results_individual.tail = 0;
     results_individual.finished = false;
-    std::atomic<uint> progress(0);
     std::thread* threads[max_threads];
 
     // Launch worker threads
     for( int t = 0; t < num_threads; t++ ) {
       threads[t] = new std::thread(worker_individual, t, num_threads, I, N, f,
-                                    std::ref(results_individual), std::ref(progress));
+                                    std::ref(results_individual));
     }
 
     // Main thread: collect and print results in order
@@ -355,13 +363,12 @@ int main( int argc, char** argv ) {
     results_pairs.head = 0;
     results_pairs.tail = 0;
     results_pairs.finished = false;
-    std::atomic<qword> progress(0);
     std::thread* threads[max_threads];
 
     // Launch worker threads
     for( int t = 0; t < num_threads; t++ ) {
       threads[t] = new std::thread(worker_pairs, t, num_threads, I, N, f,
-                                    std::ref(results_pairs), std::ref(progress));
+                                    std::ref(results_pairs));
     }
 
     // Main thread: collect and print results in order
