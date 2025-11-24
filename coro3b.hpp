@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <memory.h>
-#undef EOF
+//#undef EOF
 
 #pragma pack(1)
 

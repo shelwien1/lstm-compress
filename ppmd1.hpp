@@ -1315,7 +1315,7 @@ void processSymbol2( PPM_CONTEXT& q, int symbol ) {
 
     //f_quit=0; coro_init();
 
-    if( !StartSubAllocator( _MMAX ) ) return 1;
+    //if( !StartSubAllocator( _MMAX ) ) return 1;
 
     StartModelRare();
 
@@ -1325,7 +1325,7 @@ void processSymbol2( PPM_CONTEXT& q, int symbol ) {
   }
 
   void Quit( void ) {
-    StopSubAllocator();
+    //StopSubAllocator();
   }
 
   void do_process( void ) {
