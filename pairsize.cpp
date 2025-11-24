@@ -64,7 +64,7 @@ uint compute_size_blocks( Model<0>& C, byte* outbuf, idx* I, uint N, byte* f, ui
 
 // Structure to hold results for ordered output
 struct Result {
-  uint index;  // For single blocks, this is i; for pairs, this is a linear index
+  qword index;  // For single blocks, this is i; for pairs, this is a linear index
   uint i, j;   // Block indices (j is -1 for single blocks)
   uint csize;
   bool ready;
@@ -106,21 +106,12 @@ public:
 
 // Worker thread for individual blocks
 void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
+                       Model<0>* C_local, byte* outbuf_local,
                        ResultQueue& rq, std::atomic<uint>& progress) {
-  // Each thread needs its own Model instance and buffers
-  ALIGN(4096) Model<0> C_local;
-  ALIGN(4096) byte outbuf_local[outbufsize];
-
-  uint r = C_local.StartSubAllocator( pmd_args1[1] );
-  if( r!=1 ) {
-    printf( "Thread %d: Error allocating ppmd memory\n", thread_id );
-    return;
-  }
-
   // Thread x processes blocks k*N+x
   for( uint i = thread_id; i < N; i += num_threads ) {
     uint block_idx = i;
-    uint csize = compute_size_blocks( C_local, outbuf_local, I, N, f, &block_idx, 1 );
+    uint csize = compute_size_blocks( *C_local, outbuf_local, I, N, f, &block_idx, 1 );
 
     Result res;
     res.index = i;
@@ -136,24 +127,15 @@ void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
 
 // Worker thread for pair blocks
 void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
-                  ResultQueue& rq, std::atomic<uint>& progress) {
-  // Each thread needs its own Model instance and buffers
-  ALIGN(4096) Model<0> C_local;
-  ALIGN(4096) byte outbuf_local[outbufsize];
-
-  uint r = C_local.StartSubAllocator( pmd_args1[1] );
-  if( r!=1 ) {
-    printf( "Thread %d: Error allocating ppmd memory\n", thread_id );
-    return;
-  }
-
+                  Model<0>* C_local, byte* outbuf_local,
+                  ResultQueue& rq, std::atomic<qword>& progress) {
   // Thread x processes pairs with linear index k*num_threads+x
-  uint pair_idx = 0;
+  qword pair_idx = 0;
   for( uint i = 0; i < N; i++ ) {
     for( uint j = i+1; j < N; j++ ) {
       if( (pair_idx % num_threads) == thread_id ) {
         uint block_indices[2] = { i, j };
-        uint csize = compute_size_blocks( C_local, outbuf_local, I, N, f, block_indices, 2 );
+        uint csize = compute_size_blocks( *C_local, outbuf_local, I, N, f, block_indices, 2 );
 
         Result res;
         res.index = pair_idx;
@@ -204,6 +186,19 @@ int main( int argc, char** argv ) {
 
   printf( "Total blocks: %u\n", N );
 
+  // Allocate Model<0> instances and output buffers for each thread
+  Model<0>* thread_models = new Model<0>[num_threads];
+  byte** thread_outbufs = new byte*[num_threads];
+
+  for( int t = 0; t < num_threads; t++ ) {
+    thread_outbufs[t] = new (std::align_val_t(4096)) byte[outbufsize];
+    uint r = thread_models[t].StartSubAllocator( pmd_args1[1] );
+    if( r!=1 ) {
+      printf( "Error: Cannot allocate ppmd memory for thread %d\n", t );
+      return 1;
+    }
+  }
+
   // Part 1: Compute individual compressed sizes
   printf( "Computing individual block sizes...\n" );
   FILE* out1 = fopen( "compressed_sizes.txt", "wb" );
@@ -219,12 +214,14 @@ int main( int argc, char** argv ) {
 
     // Launch worker threads
     for( int t = 0; t < num_threads; t++ ) {
-      threads.emplace_back(worker_individual, t, num_threads, I, N, f, std::ref(rq), std::ref(progress));
+      threads.emplace_back(worker_individual, t, num_threads, I, N, f,
+                           &thread_models[t], thread_outbufs[t],
+                           std::ref(rq), std::ref(progress));
     }
 
     // Main thread: collect and print results in order
     std::vector<Result> pending_results;
-    uint next_index = 0;
+    qword next_index = 0;
 
     while( next_index < N ) {
       // Try to find next result in pending buffer
@@ -253,7 +250,7 @@ int main( int argc, char** argv ) {
       }
 
       if( next_index % 100 == 0 ) {
-        printf( "Processed %u / %u individual blocks\r", next_index, N );
+        printf( "Processed %llu / %u individual blocks\r", next_index, N );
         fflush(stdout);
       }
     }
@@ -276,21 +273,23 @@ int main( int argc, char** argv ) {
     return 1;
   }
 
-  uint expected_pairs = (N * (N-1)) / 2;
+  qword expected_pairs = ((qword)N * (N-1)) / 2;
 
   {
     ResultQueue rq;
-    std::atomic<uint> progress(0);
+    std::atomic<qword> progress(0);
     std::vector<std::thread> threads;
 
     // Launch worker threads
     for( int t = 0; t < num_threads; t++ ) {
-      threads.emplace_back(worker_pairs, t, num_threads, I, N, f, std::ref(rq), std::ref(progress));
+      threads.emplace_back(worker_pairs, t, num_threads, I, N, f,
+                           &thread_models[t], thread_outbufs[t],
+                           std::ref(rq), std::ref(progress));
     }
 
     // Main thread: collect and print results in order
     std::vector<Result> pending_results;
-    uint next_index = 0;
+    qword next_index = 0;
 
     while( next_index < expected_pairs ) {
       // Try to find next result in pending buffer
@@ -319,7 +318,7 @@ int main( int argc, char** argv ) {
       }
 
       if( next_index % 1000 == 0 ) {
-        printf( "Processed %u / %u pairs\r", next_index, expected_pairs );
+        printf( "Processed %llu / %llu pairs\r", next_index, expected_pairs );
         fflush(stdout);
       }
     }
@@ -329,12 +328,19 @@ int main( int argc, char** argv ) {
       t.join();
     }
 
-    printf( "Processed %u / %u pairs - Done!\n", expected_pairs, expected_pairs );
+    printf( "Processed %llu / %llu pairs - Done!\n", expected_pairs, expected_pairs );
   }
   fclose( out2 );
 
   printf( "All processing complete!\n" );
 #endif
+
+  // Cleanup
+  for( int t = 0; t < num_threads; t++ ) {
+    delete[] thread_outbufs[t];
+  }
+  delete[] thread_outbufs;
+  delete[] thread_models;
 
   return 0;
 }
