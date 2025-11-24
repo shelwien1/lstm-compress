@@ -1,6 +1,12 @@
 
 #include "coro3b.hpp"
 #include "ppmd1.hpp"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <vector>
+#include <queue>
+#include <atomic>
 
 uint pmd_args1[] = { 6, 358, 1 };
 
@@ -24,12 +30,16 @@ struct idx {
 //ALIGN(4096) pmd_codec C;
 ALIGN(4096) Model<0> C;
 
-enum { inpbufsize = 1<<16, outbufsize = 1<<16 };
-ALIGN(4096) byte inpbuf[inpbufsize];
+enum { inpbufsize = 1<<16, outbufsize = 1<<16, max_threads = 256 };
+
+// Global arrays for thread-specific Models
+Model<0>* thread_models[max_threads];
+
+// Single global output buffer (shared by all threads, only size matters)
 ALIGN(4096) byte outbuf[outbufsize];
 
 // Compute compressed size for a single block or pair of blocks
-uint compute_size_blocks( idx* I, uint N, byte* f, uint* block_indices, uint num_blocks ) {
+uint compute_size_blocks( Model<0>& C, byte* outbuf, idx* I, uint N, byte* f, uint* block_indices, uint num_blocks ) {
   uint i0, csize = -1;
   C.Init(pmd_args1[0]/*ppmd_order*/,pmd_args1[1]/*ppmd_memory*/,pmd_args1[2]/*ppmd_restore*/);
   C.coro_init();
@@ -58,7 +68,106 @@ uint compute_size_blocks( idx* I, uint N, byte* f, uint* block_indices, uint num
   return csize;
 }
 
+// Structure to hold results for ordered output
+struct Result {
+  qword index;  // For single blocks, this is i; for pairs, this is a linear index
+  uint i, j;   // Block indices (j is -1 for single blocks)
+  uint csize;
+  bool ready;
+
+  Result() : index(0), i(0), j(-1), csize(0), ready(false) {}
+};
+
+// Thread-safe result queue
+class ResultQueue {
+  std::queue<Result> q;
+  std::mutex mtx;
+  std::condition_variable cv;
+  bool finished;
+
+public:
+  ResultQueue() : finished(false) {}
+
+  void push(const Result& r) {
+    std::lock_guard<std::mutex> lock(mtx);
+    q.push(r);
+    cv.notify_one();
+  }
+
+  bool pop(Result& r) {
+    std::unique_lock<std::mutex> lock(mtx);
+    cv.wait(lock, [this]{ return !q.empty() || finished; });
+    if (q.empty()) return false;
+    r = q.front();
+    q.pop();
+    return true;
+  }
+
+  void set_finished() {
+    std::lock_guard<std::mutex> lock(mtx);
+    finished = true;
+    cv.notify_all();
+  }
+};
+
+// Worker thread for individual blocks
+void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
+                       ResultQueue& rq, std::atomic<uint>& progress) {
+  // Thread x processes blocks k*N+x
+  for( uint i = thread_id; i < N; i += num_threads ) {
+    uint block_idx = i;
+    uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, &block_idx, 1 );
+
+    Result res;
+    res.index = i;
+    res.i = i;
+    res.j = -1;
+    res.csize = csize;
+    res.ready = true;
+    rq.push(res);
+
+    progress.fetch_add(1);
+  }
+}
+
+// Worker thread for pair blocks
+void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
+                  ResultQueue& rq, std::atomic<qword>& progress) {
+  // Thread x processes pairs with linear index k*num_threads+x
+  qword pair_idx = 0;
+  for( uint i = 0; i < N; i++ ) {
+    for( uint j = i+1; j < N; j++ ) {
+      if( (pair_idx % num_threads) == thread_id ) {
+        uint block_indices[2] = { i, j };
+        uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, block_indices, 2 );
+
+        Result res;
+        res.index = pair_idx;
+        res.i = i;
+        res.j = j;
+        res.csize = csize;
+        res.ready = true;
+        rq.push(res);
+
+        progress.fetch_add(1);
+      }
+      pair_idx++;
+    }
+  }
+}
+
 int main( int argc, char** argv ) {
+
+  // Parse command-line argument for thread count (default 1)
+  int num_threads = 1;
+  if( argc > 1 ) {
+    num_threads = atoi(argv[1]);
+    if( num_threads < 1 ) {
+      printf( "Error: Thread count must be at least 1\n" );
+      return 1;
+    }
+  }
+  printf( "Using %d thread(s)\n", num_threads );
 
   printf( "Loading enwik_art_idx... " );
   idx* I;
@@ -81,6 +190,16 @@ int main( int argc, char** argv ) {
 
   printf( "Total blocks: %u\n", N );
 
+  // Allocate Model<0> instances for each thread in global array
+  for( int t = 0; t < num_threads; t++ ) {
+    thread_models[t] = new Model<0>;
+    uint r = thread_models[t]->StartSubAllocator( pmd_args1[1] );
+    if( r!=1 ) {
+      printf( "Error: Cannot allocate ppmd memory for thread %d\n", t );
+      return 1;
+    }
+  }
+
   // Part 1: Compute individual compressed sizes
   printf( "Computing individual block sizes...\n" );
   FILE* out1 = fopen( "compressed_sizes.txt", "wb" );
@@ -89,17 +208,61 @@ int main( int argc, char** argv ) {
     return 1;
   }
 
-  for( uint i = 0; i < N; i++ ) {
-    uint block_idx = i;
-    uint csize = compute_size_blocks( I, N, f, &block_idx, 1 );
-    fprintf( out1, "%06i - %i\n", i, csize );
-    if( i % 100 == 0 ) {
-      printf( "Processed %u / %u individual blocks\r", i, N );
-      fflush(stdout);
+  {
+    ResultQueue rq;
+    std::atomic<uint> progress(0);
+    std::vector<std::thread> threads;
+
+    // Launch worker threads
+    for( int t = 0; t < num_threads; t++ ) {
+      threads.emplace_back(worker_individual, t, num_threads, I, N, f,
+                           std::ref(rq), std::ref(progress));
     }
+
+    // Main thread: collect and print results in order
+    std::vector<Result> pending_results;
+    qword next_index = 0;
+
+    while( next_index < N ) {
+      // Try to find next result in pending buffer
+      bool found = false;
+      for( size_t k = 0; k < pending_results.size(); k++ ) {
+        if( pending_results[k].index == next_index ) {
+          fprintf( out1, "%06i - %i\n", pending_results[k].i, pending_results[k].csize );
+          pending_results.erase(pending_results.begin() + k);
+          next_index++;
+          found = true;
+          break;
+        }
+      }
+
+      if( !found ) {
+        // Wait for more results
+        Result res;
+        if( rq.pop(res) ) {
+          if( res.index == next_index ) {
+            fprintf( out1, "%06i - %i\n", res.i, res.csize );
+            next_index++;
+          } else {
+            pending_results.push_back(res);
+          }
+        }
+      }
+
+      if( next_index % 100 == 0 ) {
+        printf( "Processed %llu / %u individual blocks\r", next_index, N );
+        fflush(stdout);
+      }
+    }
+
+    // Wait for all threads to finish
+    for( auto& t : threads ) {
+      t.join();
+    }
+
+    printf( "Processed %u / %u individual blocks - Done!\n", N, N );
   }
   fclose( out1 );
-  printf( "Processed %u / %u individual blocks - Done!\n", N, N );
 
 #if 1
   // Part 2: Compute pair compressed sizes
@@ -110,26 +273,71 @@ int main( int argc, char** argv ) {
     return 1;
   }
 
-  uint total_pairs = 0;
-  uint expected_pairs = (N * (N-1)) / 2;
+  qword expected_pairs = ((qword)N * (N-1)) / 2;
 
-  for( uint i = 0; i < N; i++ ) {
-    for( uint j = i+1; j < N; j++ ) {
-      uint block_indices[2] = { i, j };
-      uint csize = compute_size_blocks( I, N, f, block_indices, 2 );
-      fprintf( out2, "%06i_%06i - %i\n", i, j, csize );
-      total_pairs++;
-      if( total_pairs % 1000 == 0 ) {
-        printf( "Processed %u / %u pairs\r", total_pairs, expected_pairs );
+  {
+    ResultQueue rq;
+    std::atomic<qword> progress(0);
+    std::vector<std::thread> threads;
+
+    // Launch worker threads
+    for( int t = 0; t < num_threads; t++ ) {
+      threads.emplace_back(worker_pairs, t, num_threads, I, N, f,
+                           std::ref(rq), std::ref(progress));
+    }
+
+    // Main thread: collect and print results in order
+    std::vector<Result> pending_results;
+    qword next_index = 0;
+
+    while( next_index < expected_pairs ) {
+      // Try to find next result in pending buffer
+      bool found = false;
+      for( size_t k = 0; k < pending_results.size(); k++ ) {
+        if( pending_results[k].index == next_index ) {
+          fprintf( out2, "%06i_%06i - %i\n", pending_results[k].i, pending_results[k].j, pending_results[k].csize );
+          pending_results.erase(pending_results.begin() + k);
+          next_index++;
+          found = true;
+          break;
+        }
+      }
+
+      if( !found ) {
+        // Wait for more results
+        Result res;
+        if( rq.pop(res) ) {
+          if( res.index == next_index ) {
+            fprintf( out2, "%06i_%06i - %i\n", res.i, res.j, res.csize );
+            next_index++;
+          } else {
+            pending_results.push_back(res);
+          }
+        }
+      }
+
+      if( next_index % 1000 == 0 ) {
+        printf( "Processed %llu / %llu pairs\r", next_index, expected_pairs );
         fflush(stdout);
       }
     }
+
+    // Wait for all threads to finish
+    for( auto& t : threads ) {
+      t.join();
+    }
+
+    printf( "Processed %llu / %llu pairs - Done!\n", expected_pairs, expected_pairs );
   }
   fclose( out2 );
-  printf( "Processed %u / %u pairs - Done!\n", total_pairs, expected_pairs );
 
   printf( "All processing complete!\n" );
 #endif
+
+  // Cleanup
+  for( int t = 0; t < num_threads; t++ ) {
+    delete thread_models[t];
+  }
 
   return 0;
 }
