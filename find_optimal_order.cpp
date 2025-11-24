@@ -6,6 +6,7 @@
  */
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -161,7 +162,7 @@ inline float evaluate_order(const vector<ItemIdx>& order, const GainMatrix& gain
 vector<ItemIdx> greedy_construction(const ProblemData& data, int num_starts = 20) {
     const size_t n = data.items.size();
     vector<ItemIdx> best_order;
-    float best_gain = numeric_limits<float>::infinity();
+    float best_gain = FLT_MAX;
 
     num_starts = min(num_starts, (int)n);
 
@@ -176,7 +177,7 @@ vector<ItemIdx> greedy_construction(const ProblemData& data, int num_starts = 20
         while (order.size() < n) {
             ItemIdx last_item = order.back();
             ItemIdx best_item = 0;
-            float best_gain_local = numeric_limits<float>::infinity();
+            float best_gain_local = FLT_MAX;
 
             for (ItemIdx item = 0; item < n; item++) {
                 if (used[item]) continue;
@@ -195,7 +196,7 @@ vector<ItemIdx> greedy_construction(const ProblemData& data, int num_starts = 20
         float total_gain = evaluate_order(order, data.gain_matrix);
         if (total_gain < best_gain) {
             best_gain = total_gain;
-            best_order = move(order);
+            best_order = std::move(order);
         }
     }
 
@@ -316,7 +317,7 @@ vector<ItemIdx> genetic_algorithm(const ProblemData& data,
     }
 
     vector<ItemIdx> best_individual;
-    float best_gain = numeric_limits<float>::infinity();
+    float best_gain = FLT_MAX;
 
     uniform_real_distribution<float> dist(0.0f, 1.0f);
     uniform_int_distribution<size_t> idx_dist(0, n - 1);
@@ -374,8 +375,10 @@ vector<ItemIdx> genetic_algorithm(const ProblemData& data,
                 for (size_t j = 0; j < n; j++) {
                     if (j >= start && j <= end) continue;
 
-                    while (used[parent2[ptr]]) ptr++;
-                    child[j] = parent2[ptr++];
+                    while (ptr < n && used[parent2[ptr]]) ptr++;
+                    if (ptr < n) {
+                        child[j] = parent2[ptr++];
+                    }
                 }
 
                 return child;
@@ -395,8 +398,8 @@ vector<ItemIdx> genetic_algorithm(const ProblemData& data,
             mutate(child1);
             mutate(child2);
 
-            population.push_back(move(child1));
-            population.push_back(move(child2));
+            population.push_back(std::move(child1));
+            population.push_back(std::move(child2));
         }
 
         // Keep population size constant
@@ -419,28 +422,28 @@ pair<vector<ItemIdx>, float> run_algorithm_with_2opt(
 
     vector<ItemIdx> order = algorithm();
     float gain_before = evaluate_order(order, data.gain_matrix);
-    order = two_opt(move(order), data.gain_matrix);
+    order = two_opt(std::move(order), data.gain_matrix);
     float gain_after = evaluate_order(order, data.gain_matrix);
     float improvement = gain_before - gain_after;
 
     printf("  %s: %.0f bytes (2-opt improved by %.0f bytes)\n",
            name, gain_after, improvement);
 
-    return {move(order), gain_after};
+    return {std::move(order), gain_after};
 }
 
 // Hybrid optimization approach
 pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int time_limit = 60) {
     time_t start_time = time(nullptr);
     vector<ItemIdx> best_order;
-    float best_gain = numeric_limits<float>::infinity();
+    float best_gain = FLT_MAX;
 
     // Greedy construction
     if (time(nullptr) - start_time < time_limit) {
         auto [order, gain] = run_algorithm_with_2opt("greedy construction",
             [&]() { return greedy_construction(data, 20); }, data);
         if (gain < best_gain) {
-            best_order = move(order);
+            best_order = std::move(order);
             best_gain = gain;
         }
     }
@@ -450,7 +453,7 @@ pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int ti
         auto [order, gain] = run_algorithm_with_2opt("simulated annealing",
             [&]() { return simulated_annealing(data); }, data);
         if (gain < best_gain) {
-            best_order = move(order);
+            best_order = std::move(order);
             best_gain = gain;
         }
     }
@@ -460,7 +463,7 @@ pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int ti
         auto [order, gain] = run_algorithm_with_2opt("genetic algorithm",
             [&]() { return genetic_algorithm(data); }, data);
         if (gain < best_gain) {
-            best_order = move(order);
+            best_order = std::move(order);
             best_gain = gain;
         }
     }
@@ -475,11 +478,11 @@ pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int ti
         for (size_t i = 0; i < n; i++) random_order[i] = i;
         shuffle(random_order.begin(), random_order.end(), rng);
 
-        vector<ItemIdx> order = two_opt(move(random_order), data.gain_matrix);
+        vector<ItemIdx> order = two_opt(std::move(random_order), data.gain_matrix);
         float gain = evaluate_order(order, data.gain_matrix);
 
         if (gain < best_gain) {
-            best_order = move(order);
+            best_order = std::move(order);
             best_gain = gain;
             printf("  Random start %d: Improved to %.0f\n", iterations, gain);
         }
@@ -487,7 +490,7 @@ pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int ti
         iterations++;
     }
 
-    return {move(best_order), best_gain};
+    return {std::move(best_order), best_gain};
 }
 
 // Analyze and display results
