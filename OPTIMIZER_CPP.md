@@ -20,10 +20,27 @@ g++ -std=c++17 -O3 -Ofast -march=native -mtune=native \
 ## Usage
 
 ```bash
+# Use default 60 second time limit
 ./find_optimal_order
+
+# Specify custom time limit (in seconds)
+./find_optimal_order 120
+
+# Show help
+./find_optimal_order --help
 ```
 
-Reads `compressed_sizes.txt` and `pair_compressed_sizes.txt` and outputs `optimal_order-ds.txt`.
+**Input files:**
+- `compressed_sizes.txt` - Individual compressed sizes
+- `pair_compressed_sizes.txt` - Pairwise compressed sizes
+
+**Output file:**
+- `optimal_order-ds.txt` - Optimal ordering with statistics
+
+**Time limit:** Controls how long the optimizer runs (default: 60 seconds)
+- Shorter times (5-30s): Quick results, may not be optimal
+- Longer times (120-300s): Better optimization quality
+- Very long (600+s): Diminishing returns for most datasets
 
 ## Key Optimizations
 
