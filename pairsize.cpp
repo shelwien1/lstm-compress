@@ -2,7 +2,6 @@
 #include "coro3b.hpp"
 #include "ppmd1.hpp"
 #include <thread>
-#include <atomic>
 #include <time.h>
 #include <stdarg.h>
 #include <string.h>
@@ -41,7 +40,7 @@ ALIGN(4096) byte outbuf[outbufsize];
 
 // Compute compressed size for a single block or pair of blocks
 uint compute_size_blocks( Model<0>& C, byte* outbuf, idx* I, uint N, byte* f, uint* block_indices, uint num_blocks ) {
-  uint i0, csize = -1;
+  uint i0, csize = 0;
   C.Init(pmd_args1[0]/*ppmd_order*/,pmd_args1[1]/*ppmd_memory*/,pmd_args1[2]/*ppmd_restore*/);
   C.coro_init();
   C.addout( outbuf, outbufsize );
@@ -82,19 +81,19 @@ struct Result {
 // Static ring buffer for thread-safe result passing
 struct RingBuffer {
   Result buffer[ringsize];
-  std::atomic<qword> head;  // Write position (only incremented, wrap on access)
-  std::atomic<qword> tail;  // Read position (only incremented, wrap on access)
+  volatile qword head;  // Write position (only incremented, wrap on access)
+  volatile qword tail;  // Read position (only incremented, wrap on access)
   volatile bool finished;
 
   RingBuffer() : head(0), tail(0), finished(false) {}
 
   // Push result to ring buffer (called by worker threads)
   void push(const Result& r) {
-    // Atomically reserve a slot
-    qword my_head = head.fetch_add(1, std::memory_order_acquire);
+    // Reserve a slot
+    qword my_head = head++;
 
     // Spin-wait if buffer is full
-    while (my_head - tail.load(std::memory_order_acquire) >= ringsize) {
+    while (my_head - tail >= ringsize) {
       // Buffer full, wait for consumer
       #if defined(__x86_64__) || defined(_M_X64)
       __builtin_ia32_pause();
@@ -103,15 +102,12 @@ struct RingBuffer {
 
     // Write to reserved slot (apply mask only when accessing array)
     buffer[my_head & (ringsize - 1)] = r;
-
-    // Ensure write is visible
-    std::atomic_thread_fence(std::memory_order_release);
   }
 
   // Pop result from ring buffer (called by main thread)
   bool pop(Result& r) {
-    qword current_tail = tail.load(std::memory_order_acquire);
-    qword current_head = head.load(std::memory_order_acquire);
+    qword current_tail = tail;
+    qword current_head = head;
 
     if (current_tail >= current_head) {
       // Buffer empty
@@ -122,7 +118,7 @@ struct RingBuffer {
     r = buffer[current_tail & (ringsize - 1)];
 
     // Advance tail (only increment, no masking)
-    tail.store(current_tail + 1, std::memory_order_release);
+    tail = current_tail + 1;
     return true;
   }
 
@@ -140,7 +136,8 @@ static RingBuffer results_individual;
 static RingBuffer results_pairs;
 
 // Static pending results buffer (for out-of-order results)
-static Result pending_buffer[4096];
+// Must be at least as large as ringsize to avoid dropping results
+static Result pending_buffer[ringsize];
 static uint pending_count = 0;
 
 // Double-buffered output (128k total = 64k * 2)
@@ -314,7 +311,7 @@ int main( int argc, char** argv ) {
             buffered_printf( "%06i - %i\n", res.i, res.csize );
             next_index++;
           } else {
-            if( pending_count < 4096 ) {
+            if( pending_count < ringsize ) {
               pending_buffer[pending_count++] = res;
             }
           }
@@ -400,7 +397,7 @@ int main( int argc, char** argv ) {
             buffered_printf( "%06i_%06i - %i\n", res.i, res.j, res.csize );
             next_index++;
           } else {
-            if( pending_count < 4096 ) {
+            if( pending_count < ringsize ) {
               pending_buffer[pending_count++] = res;
             }
           }
