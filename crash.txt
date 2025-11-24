@@ -1,0 +1,82 @@
+disasm:
+.text:31821543 lea     rcx, _Format                    ; "Running %s...\n"
+.text:3182154A lea     data, aGeneticAlgorit           ; "genetic algorithm"
+.text:31821551 call    printf
+.text:31821556 lea     rcx, [rbp+1C0h+_Count]          ; result
+.text:3182155A mov     data, [rbp+1C0h+var_F0]         ; data
+.text:31821561 call    genetic_algorithm
+.text:31821566 mov     rcx, [rbp+1C0h+_Count]
+.text:3182156A mov     r12, [rbp+1C0h+_Count+8]
+.text:3182156E mov     data, r12
+.text:31821571 sub     data, rcx
+.text:31821574 sar     data, 2
+.text:31821578 lea     rax, [data-1]
+.text:3182157C cmp     rax, 4
+.text:31821580 jnb     short loc_7FF63182158C
+.text:31821582 vxorps  xmm8, xmm8, xmm8
+.text:31821587 xor     r9d, r9d
+.text:3182158A jmp     short loc_7FF631821605
+.text:3182158C ; ---------------------------------------------------------------------------
+.text:3182158C
+.text:3182158C loc_7FF63182158C:                       ; CODE XREF: hybrid_optimization+37A0^j
+.text:3182158C mov     r9, [rbp+1C0h+var_F0]
+.text:31821593 mov     r10, [r9+0D8h]
+.text:3182159A mov     r11, [r9+0F0h]
+.text:318215A1 mov     edi, [rcx]  ; !!! CRASH HERE, reading from 0
+.text:318215A3 vxorps  xmm8, xmm8, xmm8
+.text:318215A8 mov     ebx, 4
+.text:318215AD nop     dword ptr [rax]
+.text:318215B0
+.text:318215B0 loc_7FF6318215B0:                       ; CODE XREF: hybrid_optimization+3823vj
+.text:318215B0 mov     r9, rbx
+.text:318215B3 mov     ebx, [rcx+rbx*4-0Ch]
+
+decompile:
+ size = (unsigned __int64)v870;
+  *((_QWORD *)&v1290 + 1) = v870;
+  v1291 = (unsigned __int64)v329;
+LABEL_300:
+  if ( time64(0) - v1289 > 59 )
+    goto LABEL_344;
+  printf("Running %s...\n", "genetic algorithm");
+  genetic_algorithm(&_Count, v1308, v874, v875, v1282);
+  _R12 = _Count._Mypair._Myval2._Mylast;
+  v877 = _Count._Mypair._Myval2._Mylast - _Count._Mypair._Myval2._Myfirst;
+  v878 = v877 - 1;
+  if ( (unsigned __int64)(v877 - 1) >= 4 )
+  {
+    // !!! CRASH right before this, rdi is index in the loop below
+    __asm { vxorps  xmm8, xmm8, xmm8 }
+    v881 = 4;
+    do
+    {
+      v880 = v881;
+      __asm { vaddss  xmm0, xmm8, dword ptr [rdi+rbx*4] }
+      __asm { vaddss  xmm0, xmm0, dword ptr [rdi+r14*4] }
+      __asm { vaddss  xmm0, xmm0, dword ptr [rdi+rbx*4] }
+      __asm { vaddss  xmm8, xmm0, dword ptr [rbx+rdi*4] }
+      v881 += 4LL;
+    }
+    while ( v881 <= v878 );
+  }
+  else
+  {
+    __asm { vxorps  xmm8, xmm8, xmm8 }
+    v880 = 0;
+  }
+  if ( v880 < v878 )
+  {
+    v884 = v1308->gain_matrix.data._Mypair._Myval2._Myfirst;
+    v885 = v1308->gain_matrix.size;
+
+
+source:
+  // Genetic algorithm
+    if (time(nullptr) - start_time < time_limit) {
+        auto [order, gain] = run_algorithm_with_2opt("genetic algorithm", // crash around here
+            [&]() { return genetic_algorithm(data); }, data);
+        if (gain < best_gain) {
+            best_order = move(order);
+            best_gain = gain;
+        }
+    }
