@@ -3,6 +3,7 @@ coder
 coder.exe
 kanncompr
 kanncompr_
+pairsize
 *.o
 
 # Python cache
