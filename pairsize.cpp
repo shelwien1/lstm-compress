@@ -106,7 +106,7 @@ int main( int argc, char** argv ) {
   fclose( out1 );
   printf( "Processed %u / %u individual blocks - Done!\n", N, N );
 
-#if 0
+#if 1
   // Part 2: Compute pair compressed sizes
   printf( "Computing pair block sizes...\n" );
   FILE* out2 = fopen( "pair_compressed_sizes.txt", "wb" );
