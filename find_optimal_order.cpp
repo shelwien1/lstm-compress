@@ -604,7 +604,32 @@ void save_ordering(const char* filename, const vector<ItemIdx>& order, const Pro
     printf("\nOrdering saved to: %s\n", filename);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Parse command line arguments
+    int time_limit = 60;  // Default 60 seconds
+
+    if (argc > 1) {
+        // Check for help flag
+        if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+            printf("Usage: %s [time_limit_seconds]\n", argv[0]);
+            printf("\nOptions:\n");
+            printf("  time_limit_seconds    Time limit for optimization (default: 60)\n");
+            printf("  -h, --help           Show this help message\n");
+            printf("\nExample:\n");
+            printf("  %s 120    # Run for 120 seconds\n", argv[0]);
+            printf("  %s        # Run with default 60 seconds\n", argv[0]);
+            return 0;
+        }
+
+        // Parse time limit
+        time_limit = atoi(argv[1]);
+        if (time_limit <= 0) {
+            fprintf(stderr, "Error: Invalid time limit '%s'. Must be a positive integer.\n", argv[1]);
+            fprintf(stderr, "Run '%s --help' for usage information.\n", argv[0]);
+            return 1;
+        }
+    }
+
     printf("Loading data...\n");
 
     ProblemData data(0);
@@ -635,9 +660,9 @@ int main() {
     printf("\nPrecomputing gain matrix...\n");
     compute_gain_matrix(data);
 
-    printf("\nFinding optimal ordering using hybrid approach...\n");
+    printf("\nFinding optimal ordering using hybrid approach (time limit: %d seconds)...\n", time_limit);
     time_t start_time = time(nullptr);
-    auto [best_order, best_gain] = hybrid_optimization(data, 60);
+    auto [best_order, best_gain] = hybrid_optimization(data, time_limit);
     time_t end_time = time(nullptr);
 
     printf("\nOptimization completed in %ld seconds\n", end_time - start_time);
