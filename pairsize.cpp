@@ -1,11 +1,6 @@
-#include <time.h>
-#include <windows.h>
 
 #include "coro3b.hpp"
 #include "ppmd1.hpp"
-
-//#include "timer.inc"
-
 
 uint pmd_args1[] = { 6, 358, 1 };
 

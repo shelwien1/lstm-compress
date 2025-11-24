@@ -134,6 +134,8 @@ void __cdecl operator delete( void* p ) {
 
 //--- #include "thread.inc"
 
+#if 0
+
 template <class child> 
 struct thread {
 
@@ -157,6 +159,8 @@ void thread_wait( void ) {
   Sleep(10); 
 } 
 
+#endif
+
 //--- #include "coro3b.inc"
 
 //#define CORO_NOASM 1
@@ -169,87 +173,13 @@ void thread_wait( void ) {
 
 #if ((defined __GNUC__) || (defined __INTEL_COMPILER) || (defined __clang__)) && (!defined CORO_NOASM)
   #ifdef X64
-//---     #include "coro3_setjmp_x64.h"
-
-struct my_jmpbuf {
-  qword rip,rsp;
-};
-
-#define ASM __asm__ volatile
-
-INLINE
-static int my_setjmp( my_jmpbuf* regs ) {
-  qword r;
-
-  ASM ("\
-   movq %%rsp,8(%1); \
-   call 1f; \
-1: popq 0(%1); \
-  " : "=a"(r) : "b"(regs),"a"(0) : "%rcx","%rdx","%rsi","%rdi","%rbp","%r8","%r9","%r10","%r11","%r12","%r13","%r14","%r15",
-"ymm0","ymm1","ymm2","ymm3","ymm4","ymm5","ymm6","ymm7","ymm8","ymm9","ymm10","ymm11","ymm12","ymm13","ymm14","ymm15"
-  );
-
-  return r;
-}
-
-INLINE
-static void my_jmp( my_jmpbuf* regs, int ) {
-  ASM ("\
-  xchg %0,%%rsp; \
-  jmp *%1; \
-  " :  : "d"(regs->rsp),"b"( ((byte*)regs->rip)+2 ),"a"(1) : 
-  );
-}
-
-typedef my_jmpbuf m_jmp_buf[1];
-#define jmp_buf m_jmp_buf
-#define longjmp my_jmp
-#define setjmp  my_setjmp
-
-//    #include "coro3_setjmp_x64b.h"
+    #include "coro3_setjmp_x64.h"
   #else
-//---     #include "coro3_setjmp_x32.h"
-
-struct my_jmpbuf {
-  uint eip,esp;
-};
-
-#define ASM __asm__ volatile
-
-INLINE
-static int my_setjmp( my_jmpbuf* regs ) {
-  int r;
-
-  ASM ("\
-   movl %%esp,4(%1); \
-   call 1f; \
-1: popl 0(%1); \
-  " : "=a"(r) : "b"(regs),"a"(0) : "%ecx","%edx","%esi","%edi","%ebp"
-  );
-
-  return r;
-}
-
-INLINE
-static void my_jmp( my_jmpbuf* regs, int ) {
-  ASM ("\
-  xchg %0,%%esp; \
-  jmp *%1; \
-  " :  : "d"(regs->esp),"b"( ((byte*)regs->eip)+2 ),"a"(1) : 
-  );
-}
-
-typedef my_jmpbuf m_jmp_buf[1];
-#define jmp_buf m_jmp_buf
-#define longjmp my_jmp
-#define setjmp  my_setjmp
-
-//    #include "coro3_setjmp_x32b.h"
+    #include "coro3_setjmp_x32.h"
   #endif
 #else 
-  #ifndef CORO_NOASM
+  #undef CORO_NOASM
   #define CORO_NOASM 1
-  #endif
   #include <setjmp.h>
 #endif
 
