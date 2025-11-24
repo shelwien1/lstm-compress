@@ -32,9 +32,11 @@ ALIGN(4096) Model<0> C;
 
 enum { inpbufsize = 1<<16, outbufsize = 1<<16, max_threads = 256 };
 
-// Global arrays for thread-specific Models and buffers
+// Global arrays for thread-specific Models
 Model<0>* thread_models[max_threads];
-byte* thread_outbufs[max_threads];
+
+// Single global output buffer (shared by all threads, only size matters)
+ALIGN(4096) byte outbuf[outbufsize];
 
 // Compute compressed size for a single block or pair of blocks
 uint compute_size_blocks( Model<0>& C, byte* outbuf, idx* I, uint N, byte* f, uint* block_indices, uint num_blocks ) {
@@ -114,7 +116,7 @@ void worker_individual(int thread_id, int num_threads, idx* I, uint N, byte* f,
   // Thread x processes blocks k*N+x
   for( uint i = thread_id; i < N; i += num_threads ) {
     uint block_idx = i;
-    uint csize = compute_size_blocks( *thread_models[thread_id], thread_outbufs[thread_id], I, N, f, &block_idx, 1 );
+    uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, &block_idx, 1 );
 
     Result res;
     res.index = i;
@@ -137,7 +139,7 @@ void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f,
     for( uint j = i+1; j < N; j++ ) {
       if( (pair_idx % num_threads) == thread_id ) {
         uint block_indices[2] = { i, j };
-        uint csize = compute_size_blocks( *thread_models[thread_id], thread_outbufs[thread_id], I, N, f, block_indices, 2 );
+        uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, block_indices, 2 );
 
         Result res;
         res.index = pair_idx;
@@ -188,10 +190,9 @@ int main( int argc, char** argv ) {
 
   printf( "Total blocks: %u\n", N );
 
-  // Allocate Model<0> instances and output buffers for each thread in global arrays
+  // Allocate Model<0> instances for each thread in global array
   for( int t = 0; t < num_threads; t++ ) {
     thread_models[t] = new Model<0>;
-    thread_outbufs[t] = new (std::align_val_t(4096)) byte[outbufsize];
     uint r = thread_models[t]->StartSubAllocator( pmd_args1[1] );
     if( r!=1 ) {
       printf( "Error: Cannot allocate ppmd memory for thread %d\n", t );
@@ -336,7 +337,6 @@ int main( int argc, char** argv ) {
   // Cleanup
   for( int t = 0; t < num_threads; t++ ) {
     delete thread_models[t];
-    delete[] thread_outbufs[t];
   }
 
   return 0;
