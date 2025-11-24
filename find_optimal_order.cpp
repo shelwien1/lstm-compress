@@ -316,8 +316,9 @@ vector<ItemIdx> genetic_algorithm(const ProblemData& data,
         shuffle(population[i].begin(), population[i].end(), rng);
     }
 
-    vector<ItemIdx> best_individual;
-    float best_gain = FLT_MAX;
+    // Initialize with first individual to ensure we always return something valid
+    vector<ItemIdx> best_individual = population[0];
+    float best_gain = evaluate_order(best_individual, data.gain_matrix);
 
     uniform_real_distribution<float> dist(0.0f, 1.0f);
     uniform_int_distribution<size_t> idx_dist(0, n - 1);
@@ -370,14 +371,18 @@ vector<ItemIdx> genetic_algorithm(const ProblemData& data,
                     used[parent1[j]] = true;
                 }
 
-                // Fill remaining from parent2
-                size_t ptr = 0;
-                for (size_t j = 0; j < n; j++) {
-                    if (j >= start && j <= end) continue;
-
-                    while (ptr < n && used[parent2[ptr]]) ptr++;
-                    if (ptr < n) {
-                        child[j] = parent2[ptr++];
+                // Fill remaining from parent2 in order
+                size_t child_pos = 0;
+                for (size_t ptr = 0; ptr < n; ptr++) {
+                    if (!used[parent2[ptr]]) {
+                        // Find next unfilled position in child
+                        while (child_pos < n && (child_pos >= start && child_pos <= end)) {
+                            child_pos++;
+                        }
+                        if (child_pos < n) {
+                            child[child_pos] = parent2[ptr];
+                            child_pos++;
+                        }
                     }
                 }
 
@@ -435,8 +440,12 @@ pair<vector<ItemIdx>, float> run_algorithm_with_2opt(
 // Hybrid optimization approach
 pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int time_limit = 60) {
     time_t start_time = time(nullptr);
-    vector<ItemIdx> best_order;
-    float best_gain = FLT_MAX;
+    const size_t n = data.items.size();
+
+    // Initialize with trivial order to ensure we always have a valid solution
+    vector<ItemIdx> best_order(n);
+    for (size_t i = 0; i < n; i++) best_order[i] = i;
+    float best_gain = evaluate_order(best_order, data.gain_matrix);
 
     // Greedy construction
     if (time(nullptr) - start_time < time_limit) {
@@ -471,7 +480,6 @@ pair<vector<ItemIdx>, float> hybrid_optimization(const ProblemData& data, int ti
     // Multi-start random search with remaining time
     printf("Running multi-start random search...\n");
     int iterations = 0;
-    const size_t n = data.items.size();
 
     while (time(nullptr) - start_time < time_limit && iterations < 100) {
         vector<ItemIdx> random_order(n);
