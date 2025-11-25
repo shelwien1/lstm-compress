@@ -5,6 +5,7 @@ kanncompr
 kanncompr_
 pairsize
 find_optimal_order
+sizes2tsp
 *.o
 
 # Python cache
