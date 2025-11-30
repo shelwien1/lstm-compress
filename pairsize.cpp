@@ -42,6 +42,7 @@ Model<0>* thread_models[max_threads];
 
 // Single global output buffer (shared by all threads, only size matters)
 ALIGN(4096) byte outbuf[outbufsize];
+//byte* outbuf;
 
 // Compute compressed size for a single block or pair of blocks
 uint compute_size_blocks( Model<0>& C, byte* outbuf, idx* I, uint N, byte* f, uint* block_indices, uint num_blocks ) {
@@ -205,7 +206,7 @@ void worker_merged(int thread_id, int num_threads, idx* I, uint N, byte* f,
   // Process pairs where one element is new_idx
   // Only loop once over i, testing two pairs: {imap[i], new_idx} and {new_idx, imap[i]}
   for( uint i = thread_id; i < imapsize; i += num_threads ) {
-    uint ii = imap[i];
+    uint ii = imap[i]; // get an index from list of relevant indices
 
     // Skip if this is new_idx itself
     if( ii == new_idx ) continue;
@@ -339,6 +340,8 @@ int main( int argc, char** argv ) {
   printf( "Total blocks: %u\n", N );
 
   uint* psize = new uint[2*N]; if( psize==0 ) return 1;
+
+  //outbuf = new byte[outbufsize]; if( outbuf==0 ) return 1;
 
   // Allocate Model<0> instances for each thread in global array
   for( int t = 0; t < num_threads; t++ ) {
@@ -597,12 +600,12 @@ int main( int argc, char** argv ) {
       if( c != y ) imap[j++] = c;
     }
     imapsize = j;
-    imap[new_idx] = x;
-    imap[2*N+x] = new_idx;
-    imap[2*N+y] = 0;
+    imap[new_idx] = min_x;
+    imap[2*N+min_x] = new_idx;
+    imap[2*N+min_y] = -1; // mark unused
 
     // Mark y as deleted in skip array
-    skip[y] = 1;
+    skip[min_y] = 1;
 
     // Clear old pairgain entries for x and y
     for( uint i = 0; i < N; i++ ) {
