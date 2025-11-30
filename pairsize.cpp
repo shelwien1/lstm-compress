@@ -171,8 +171,6 @@ void worker_pairs(int thread_id, int num_threads, idx* I, uint N, byte* f) {
   res.j = 0xFFFFFFFF;
   res.csize = 0xFFFFFFFF;
   rb.push(res);
-
-  fprintf(stderr,"!!done %i!!\n", thread_id ); fflush(stderr);
 }
 
 // Helper function to collect all leaf indices from a tree node
@@ -184,6 +182,7 @@ void collect_tree_indices( int* tree, uint node_idx, uint N, uint* indices, uint
     // Internal node - recurse on children
     int left = tree[node_idx*2+0];
     int right = tree[node_idx*2+1];
+if( (left<0) || (left>=2*N) || (right<0) || (right>=2*N) ) { fprintf(stderr, "!node_idx=%i l=%i r=%i!\n", node_idx,left,right); exit(1); }
 
     if( left >= 0 ) {
       collect_tree_indices( tree, left, N, indices, count );
@@ -204,43 +203,61 @@ void worker_merged(int thread_id, int num_threads, idx* I, uint N, byte* f,
   uint* my_indices = &thread_indices[thread_id * N];
 
   // Process pairs where one element is new_idx
-  uint pair_count = 0;
-  for( uint i = 0; i < imapsize; i++ ) {
-    for( uint j = 0; j < imapsize; j++ ) {
-      // Skip if both are same or neither is new_idx
-      if( i == j ) continue;
+  // Only loop once over i, testing two pairs: {imap[i], new_idx} and {new_idx, imap[i]}
+  for( uint i = thread_id; i < imapsize; i += num_threads ) {
+    uint ii = imap[i];
 
-      uint ii = imap[i];
-      uint jj = imap[j];
+    // Skip if this is new_idx itself
+    if( ii == new_idx ) continue;
 
-      // Only process pairs involving new_idx
-      if( ii != new_idx && jj != new_idx ) continue;
+    uint iii = ii<N ? ii : imap[i]; // remap to reused symbol if it's a merged item
 
-      if( (pair_count % num_threads) == thread_id ) {
-        // Collect all indices from tree node ii
-        uint count_i = 0;
-        collect_tree_indices( tree, ii, N, my_indices, count_i );
+    // Test pair {ii, new_idx}
+    {
+      // Collect all indices from tree node ii
+      uint count_i = 0;
+      collect_tree_indices( tree, ii, N, my_indices, count_i );
 
-        // Collect all indices from tree node jj
-        uint count_j = 0;
-        collect_tree_indices( tree, jj, N, &my_indices[count_i], count_j );
+      // Collect all indices from tree node new_idx
+      uint count_j = 0;
+      collect_tree_indices( tree, new_idx, N, &my_indices[count_i], count_j );
 
-        // Build block_indices array
-        uint total_blocks = count_i + count_j;
+      // Compute compressed size
+      uint total_blocks = count_i + count_j;
+      uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, my_indices, total_blocks );
 
-        // Compute compressed size
-        uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, my_indices, total_blocks );
+      // Compute pair-gain
+      int gain = int(csize) - int(psize[ii]) - int(psize[new_idx]);
 
-        // Compute pair-gain
-        int gain = int(csize) - int(psize[ii]) - int(psize[jj]);
+      Result res;
+      res.i = iii;  // Actual tree index
+      res.j = imap[new_idx];
+      res.csize = gain;
+      rb.push(res);
+    }
 
-        Result res;
-        res.i = i;  // Index in imap
-        res.j = j;
-        res.csize = gain;
-        rb.push(res);
-      }
-      pair_count++;
+    // Test pair {new_idx, ii}
+    {
+      // Collect all indices from tree node new_idx
+      uint count_i = 0;
+      collect_tree_indices( tree, new_idx, N, my_indices, count_i );
+
+      // Collect all indices from tree node ii
+      uint count_j = 0;
+      collect_tree_indices( tree, ii, N, &my_indices[count_i], count_j );
+
+      // Compute compressed size
+      uint total_blocks = count_i + count_j;
+      uint csize = compute_size_blocks( *thread_models[thread_id], outbuf, I, N, f, my_indices, total_blocks );
+
+      // Compute pair-gain
+      int gain = int(csize) - int(psize[new_idx]) - int(psize[ii]);
+
+      Result res;
+      res.i = imap[new_idx];  // Actual tree index
+      res.j = iii;
+      res.csize = gain;
+      rb.push(res);
     }
   }
 
@@ -250,6 +267,8 @@ void worker_merged(int thread_id, int num_threads, idx* I, uint N, byte* f,
   res.j = 0xFFFFFFFF;
   res.csize = 0xFFFFFFFF;
   rb.push(res);
+
+  fprintf(stderr,"!!done %i!!\n", thread_id ); fflush(stderr);
 }
 
 // Find the minimum pairgain (most negative value) in the pairgain array
@@ -265,7 +284,7 @@ void find_min_pairgain( int* pairgain, uint N, char* skip, uint& min_x, uint& mi
       if( skip[j] ) continue;  // Skip deleted indices
       if( i != j ) {
         int gain = pairgain[i*N+j];
-        if( gain < min_gain && gain != 0 ) {  // Skip zero entries (cleared or unused)
+        if( gain < min_gain ) {  // Skip zero entries (cleared or unused)
           min_gain = gain;
           min_x = i;
           min_y = j;
@@ -418,7 +437,10 @@ int main( int argc, char** argv ) {
   }
 
   // Allocate imap array for index mapping
-  int* imap = new int[2*N];
+  // [0..imapsize) is a table of still relevant pairgain indices
+  // [N..2*N) is a map of newly added merged indices into pairgain space
+  // [2*N..3*N) is a map of current owners of pairgain rows/columns 0..N-1
+  int* imap = new int[3*N];
   if( imap==0 ) {
     printf( "Error: Cannot allocate imap array\n" );
     return 1;
@@ -436,7 +458,7 @@ int main( int argc, char** argv ) {
   for( uint i = 0; i < N; i++ ) {
     tree[i*2+0] = i;
     tree[i*2+1] = -1;
-    imap[i] = i;
+    imap[i]=i; imap[N+i]=0; imap[2*N+i]=i;
     skip[i] = 0;
   }
   tree_top = N;
@@ -554,9 +576,8 @@ int main( int argc, char** argv ) {
     int min_gain;
     find_min_pairgain( pairgain, N, skip, min_x, min_y, min_gain );
 
-    // x and y are already actual tree indices from pairgain array
-    uint x = min_x;
-    uint y = min_y;
+    uint x = imap[2*N+min_x];
+    uint y = imap[2*N+min_y];
 
     printf( "Merging pair (%u,%u) with gain %d, imapsize=%u\n", x, y, min_gain, imapsize );
 
@@ -577,6 +598,8 @@ int main( int argc, char** argv ) {
     }
     imapsize = j;
     imap[new_idx] = x;
+    imap[2*N+x] = new_idx;
+    imap[2*N+y] = 0;
 
     // Mark y as deleted in skip array
     skip[y] = 1;
@@ -601,6 +624,7 @@ int main( int argc, char** argv ) {
       thread_buffers[t].tail = 0;
     }
 
+fprintf(stderr, "!1!\n"); 
     // Launch worker threads
     std::thread* threads[max_threads];
     uint pquit[max_threads];
@@ -611,6 +635,7 @@ int main( int argc, char** argv ) {
                                     tree, imap, imapsize, new_idx,
                                     pairgain, psize, thread_indices);
     }
+fprintf(stderr, "!2!\n"); 
 
     // Collect results
     qword idx = 0;
@@ -639,19 +664,26 @@ int main( int argc, char** argv ) {
         continue;
       }
 
-      // Store result in pairgain
-      uint ii = imap[res.i];
-      uint jj = imap[res.j];
-      pairgain[ii*N+jj] = res.csize;
+      // Store result in pairgain (res.i and res.j are already actual tree indices)
+      pairgain[res.i*N+res.j] = res.csize;
 
       idx++;
     }
 
+fprintf(stderr, "!3!\n"); 
+
     // Wait for threads to finish
     for( int t = 0; t < num_threads; t++ ) {
       threads[t]->join();
+    }
+
+fprintf(stderr, "!4!\n"); 
+
+    for( int t = 0; t < num_threads; t++ ) {
       delete threads[t];
     }
+
+fprintf(stderr, "!5!\n"); 
 
     printf( "Merged node %u complete.\n", new_idx );
   }
