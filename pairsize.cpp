@@ -254,13 +254,15 @@ void worker_merged(int thread_id, int num_threads, idx* I, uint N, byte* f,
 
 // Find the minimum pairgain (most negative value) in the pairgain array
 // Returns the x,y indices via reference parameters
-void find_min_pairgain( int* pairgain, uint N, uint& min_x, uint& min_y, int& min_gain ) {
+void find_min_pairgain( int* pairgain, uint N, char* skip, uint& min_x, uint& min_y, int& min_gain ) {
   min_gain = 0x7FFFFFFF; // Start with max int
   min_x = 0;
   min_y = 0;
 
   for( uint i = 0; i < N; i++ ) {
+    if( skip[i] ) continue;  // Skip deleted indices
     for( uint j = 0; j < N; j++ ) {
+      if( skip[j] ) continue;  // Skip deleted indices
       if( i != j ) {
         int gain = pairgain[i*N+j];
         if( gain < min_gain && gain != 0 ) {  // Skip zero entries (cleared or unused)
@@ -422,12 +424,20 @@ int main( int argc, char** argv ) {
     return 1;
   }
 
-  // Initialize tree and imap
+  // Allocate skip array for tracking deleted indices
+  char* skip = new char[N];
+  if( skip==0 ) {
+    printf( "Error: Cannot allocate skip array\n" );
+    return 1;
+  }
+
+  // Initialize tree, imap and skip
   uint tree_top, imapsize;
   for( uint i = 0; i < N; i++ ) {
     tree[i*2+0] = i;
     tree[i*2+1] = -1;
     imap[i] = i;
+    skip[i] = 0;
   }
   tree_top = N;
   imapsize = N;
@@ -542,7 +552,7 @@ int main( int argc, char** argv ) {
     // Find minimum pairgain pair
     uint min_x, min_y;
     int min_gain;
-    find_min_pairgain( pairgain, N, min_x, min_y, min_gain );
+    find_min_pairgain( pairgain, N, skip, min_x, min_y, min_gain );
 
     // x and y are already actual tree indices from pairgain array
     uint x = min_x;
@@ -567,6 +577,9 @@ int main( int argc, char** argv ) {
     }
     imapsize = j;
     imap[new_idx] = x;
+
+    // Mark y as deleted in skip array
+    skip[y] = 1;
 
     // Clear old pairgain entries for x and y
     for( uint i = 0; i < N; i++ ) {
@@ -669,6 +682,7 @@ int main( int argc, char** argv ) {
   delete[] pairgain;
   delete[] tree;
   delete[] imap;
+  delete[] skip;
 
   printf( "All processing complete!\n" );
 #endif
